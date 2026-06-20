@@ -16,6 +16,8 @@ COMMANDS_DIR := $(CLAUDE_DIR)/commands
 RULES_DIR := $(CLAUDE_DIR)/rules
 SCRIPTS_DIR := $(CLAUDE_DIR)/scripts
 
+SKILLS_MANAGER := $(CURDIR)/scripts/skills-manager.sh
+
 PI_MONO_REPO := https://github.com/badlogic/pi-mono
 PI_MONO_CACHE := /tmp/pi-mono
 PI_MONO_EXTENSIONS_SRC := $(PI_MONO_CACHE)/packages/coding-agent/examples/extensions
@@ -35,16 +37,20 @@ PI_EXTENSIONS := \
 
 SHELL := /bin/bash
 
-.PHONY: install uninstall sync-skills sync-extensions link-skills unlink-skills link-claude-md unlink-claude-md link-commands unlink-commands link-rules unlink-rules link-scripts unlink-scripts plugins-check plugins-sync
+.PHONY: install uninstall \
+	skills-link skills-unlink claude-md-link claude-md-unlink \
+	commands-link commands-unlink rules-link rules-unlink scripts-link scripts-unlink \
+	skills-sync extensions-sync plugins-check plugins-sync \
+	skills-fetch skills-list skills-update skills-update-all skills-delete
 
-install: link-skills link-claude-md link-commands link-rules link-scripts
+install: skills-link claude-md-link commands-link rules-link scripts-link
 	mkdir -p $(PI_TARGET)
 	$(STOW) --dir=$(STOW_DIR) --target=$(PI_TARGET) --adopt pi
 
-uninstall: unlink-skills unlink-claude-md unlink-commands unlink-rules unlink-scripts
+uninstall: skills-unlink claude-md-unlink commands-unlink rules-unlink scripts-unlink
 	$(STOW) --dir=$(STOW_DIR) --target=$(PI_TARGET) --delete pi
 
-link-skills:
+skills-link:
 	mkdir -p $(PI_SKILLS_DIR)
 	for target in $(SKILL_LINK_TARGETS); do \
 		mkdir -p $$target; \
@@ -58,7 +64,7 @@ link-skills:
 		echo "linked: $$link -> $(PI_SKILLS_DIR)"; \
 	done
 
-unlink-skills:
+skills-unlink:
 	for target in $(SKILL_LINK_TARGETS); do \
 		link=$$target/skills; \
 		if [ -L $$link ] && [ "$$(readlink $$link)" = "$(PI_SKILLS_DIR)" ]; then \
@@ -67,7 +73,7 @@ unlink-skills:
 		fi; \
 	done
 
-link-claude-md:
+claude-md-link:
 	@test -f $(CLAUDE_MD_FILE) || { echo "missing: $(CLAUDE_MD_FILE)"; exit 1; }
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		mkdir -p $$target; \
@@ -83,7 +89,7 @@ link-claude-md:
 		echo "linked: $$link -> $(CLAUDE_MD_FILE)"; \
 	done
 
-unlink-claude-md:
+claude-md-unlink:
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		link=$$target/CLAUDE.md; \
 		if [ -L $$link ] && [ "$$(readlink $$link)" = "$(CLAUDE_MD_FILE)" ]; then \
@@ -92,7 +98,7 @@ unlink-claude-md:
 		fi; \
 	done
 
-link-commands:
+commands-link:
 	mkdir -p $(COMMANDS_DIR)
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		mkdir -p $$target; \
@@ -106,7 +112,7 @@ link-commands:
 		echo "linked: $$link -> $(COMMANDS_DIR)"; \
 	done
 
-unlink-commands:
+commands-unlink:
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		link=$$target/commands; \
 		if [ -L $$link ] && [ "$$(readlink $$link)" = "$(COMMANDS_DIR)" ]; then \
@@ -115,7 +121,7 @@ unlink-commands:
 		fi; \
 	done
 
-link-rules:
+rules-link:
 	mkdir -p $(RULES_DIR)
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		mkdir -p $$target; \
@@ -129,7 +135,7 @@ link-rules:
 		echo "linked: $$link -> $(RULES_DIR)"; \
 	done
 
-unlink-rules:
+rules-unlink:
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		link=$$target/rules; \
 		if [ -L $$link ] && [ "$$(readlink $$link)" = "$(RULES_DIR)" ]; then \
@@ -138,7 +144,7 @@ unlink-rules:
 		fi; \
 	done
 
-link-scripts:
+scripts-link:
 	mkdir -p $(SCRIPTS_DIR)
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		mkdir -p $$target; \
@@ -152,7 +158,7 @@ link-scripts:
 		echo "linked: $$link -> $(SCRIPTS_DIR)"; \
 	done
 
-unlink-scripts:
+scripts-unlink:
 	for target in $(CLAUDE_CONFIG_DIRS); do \
 		link=$$target/scripts; \
 		if [ -L $$link ] && [ "$$(readlink $$link)" = "$(SCRIPTS_DIR)" ]; then \
@@ -214,7 +220,7 @@ plugins-sync:
 		echo "$$missing" | sed 's|^|    /plugin install |'; \
 	done
 
-sync-skills:
+skills-sync:
 	if [ -d $(PI_SKILLS_CACHE)/.git ]; then \
 		git -C $(PI_SKILLS_CACHE) pull --ff-only; \
 	else \
@@ -225,7 +231,7 @@ sync-skills:
 		cp -r $$dir $(PI_SKILLS_DIR)/; \
 	done
 
-sync-extensions:
+extensions-sync:
 	if [ -d $(PI_MONO_CACHE)/.git ]; then \
 		git -C $(PI_MONO_CACHE) pull --ff-only; \
 	else \
@@ -235,3 +241,28 @@ sync-extensions:
 	for ext in $(PI_EXTENSIONS); do \
 		cp -r $(PI_MONO_EXTENSIONS_SRC)/$$ext $(PI_EXTENSIONS_DIR)/; \
 	done
+
+# --- Per-skill source management (scripts/skills-manager.sh) ---------------
+# Fetch one skill from any repo/subpath, tracking its source in
+# skills/<name>/.source.json so it can be listed, updated, and deleted.
+
+skills-fetch:
+	@$(SKILLS_MANAGER) fetch \
+		$(if $(URL),--url "$(URL)") \
+		$(if $(REPO),--repo "$(REPO)") \
+		$(if $(SUBPATH),--subpath "$(SUBPATH)") \
+		$(if $(REF),--ref "$(REF)") \
+		$(if $(NAME),--name "$(NAME)") \
+		$(if $(FORCE),--force)
+
+skills-list:
+	@$(SKILLS_MANAGER) list
+
+skills-update:
+	@$(SKILLS_MANAGER) update --name "$(NAME)"
+
+skills-update-all:
+	@$(SKILLS_MANAGER) update --all
+
+skills-delete:
+	@$(SKILLS_MANAGER) delete --name "$(NAME)" $(if $(YES),--yes)
