@@ -15,8 +15,9 @@ CLAUDE_MD_FILE := $(CLAUDE_DIR)/CLAUDE.md
 COMMANDS_DIR := $(CLAUDE_DIR)/commands
 RULES_DIR := $(CLAUDE_DIR)/rules
 SCRIPTS_DIR := $(CLAUDE_DIR)/scripts
+AGENTS_DIR := $(CLAUDE_DIR)/agents
 
-SKILLS_MANAGER := $(CURDIR)/scripts/skills-manager.sh
+RESOURCE_MANAGER := $(CURDIR)/scripts/resource-manager.sh
 
 PI_MONO_REPO := https://github.com/badlogic/pi-mono
 PI_MONO_CACHE := /tmp/pi-mono
@@ -40,14 +41,16 @@ SHELL := /bin/bash
 .PHONY: install uninstall \
 	skills-link skills-unlink claude-md-link claude-md-unlink \
 	commands-link commands-unlink rules-link rules-unlink scripts-link scripts-unlink \
+	agents-link agents-unlink \
 	skills-sync extensions-sync plugins-check plugins-sync \
-	skills-fetch skills-list skills-update skills-update-all skills-delete
+	skills-fetch skills-list skills-update skills-update-all skills-delete \
+	agents-fetch agents-list agents-update agents-update-all agents-delete
 
-install: skills-link claude-md-link commands-link rules-link scripts-link
+install: skills-link claude-md-link commands-link rules-link scripts-link agents-link
 	mkdir -p $(PI_TARGET)
 	$(STOW) --dir=$(STOW_DIR) --target=$(PI_TARGET) --adopt pi
 
-uninstall: skills-unlink claude-md-unlink commands-unlink rules-unlink scripts-unlink
+uninstall: skills-unlink claude-md-unlink commands-unlink rules-unlink scripts-unlink agents-unlink
 	$(STOW) --dir=$(STOW_DIR) --target=$(PI_TARGET) --delete pi
 
 skills-link:
@@ -167,6 +170,29 @@ scripts-unlink:
 		fi; \
 	done
 
+agents-link:
+	mkdir -p $(AGENTS_DIR)
+	for target in $(CLAUDE_CONFIG_DIRS); do \
+		mkdir -p $$target; \
+		link=$$target/agents; \
+		if [ -L $$link ]; then \
+			rm $$link; \
+		elif [ -d $$link ]; then \
+			rmdir $$link 2>/dev/null || { echo "skip: $$link is a non-empty directory"; continue; }; \
+		fi; \
+		ln -s $(AGENTS_DIR) $$link; \
+		echo "linked: $$link -> $(AGENTS_DIR)"; \
+	done
+
+agents-unlink:
+	for target in $(CLAUDE_CONFIG_DIRS); do \
+		link=$$target/agents; \
+		if [ -L $$link ] && [ "$$(readlink $$link)" = "$(AGENTS_DIR)" ]; then \
+			rm $$link; \
+			echo "unlinked: $$link"; \
+		fi; \
+	done
+
 plugins-check:
 	@test -f $(PLUGINS_FILE) || { echo "missing: $(PLUGINS_FILE)"; exit 1; }
 	@command -v jq >/dev/null || { echo "jq required"; exit 1; }
@@ -242,12 +268,13 @@ extensions-sync:
 		cp -r $(PI_MONO_EXTENSIONS_SRC)/$$ext $(PI_EXTENSIONS_DIR)/; \
 	done
 
-# --- Per-skill source management (scripts/skills-manager.sh) ---------------
-# Fetch one skill from any repo/subpath, tracking its source in
-# skills/<name>/.source.json so it can be listed, updated, and deleted.
+# --- Source management (scripts/resource-manager.sh) -----------------------
+# Fetch one skill (dir under skills/) or agent (.md under claude/agents/) from
+# any repo/subpath, tracking its source in a .source.json sidecar so it can be
+# listed, updated, and deleted.
 
 skills-fetch:
-	@$(SKILLS_MANAGER) fetch \
+	@$(RESOURCE_MANAGER) --kind skill fetch \
 		$(if $(URL),--url "$(URL)") \
 		$(if $(REPO),--repo "$(REPO)") \
 		$(if $(SUBPATH),--subpath "$(SUBPATH)") \
@@ -256,13 +283,34 @@ skills-fetch:
 		$(if $(FORCE),--force)
 
 skills-list:
-	@$(SKILLS_MANAGER) list
+	@$(RESOURCE_MANAGER) --kind skill list
 
 skills-update:
-	@$(SKILLS_MANAGER) update --name "$(NAME)"
+	@$(RESOURCE_MANAGER) --kind skill update --name "$(NAME)"
 
 skills-update-all:
-	@$(SKILLS_MANAGER) update --all
+	@$(RESOURCE_MANAGER) --kind skill update --all
 
 skills-delete:
-	@$(SKILLS_MANAGER) delete --name "$(NAME)" $(if $(YES),--yes)
+	@$(RESOURCE_MANAGER) --kind skill delete --name "$(NAME)" $(if $(YES),--yes)
+
+agents-fetch:
+	@$(RESOURCE_MANAGER) --kind agent fetch \
+		$(if $(URL),--url "$(URL)") \
+		$(if $(REPO),--repo "$(REPO)") \
+		$(if $(SUBPATH),--subpath "$(SUBPATH)") \
+		$(if $(REF),--ref "$(REF)") \
+		$(if $(NAME),--name "$(NAME)") \
+		$(if $(FORCE),--force)
+
+agents-list:
+	@$(RESOURCE_MANAGER) --kind agent list
+
+agents-update:
+	@$(RESOURCE_MANAGER) --kind agent update --name "$(NAME)"
+
+agents-update-all:
+	@$(RESOURCE_MANAGER) --kind agent update --all
+
+agents-delete:
+	@$(RESOURCE_MANAGER) --kind agent delete --name "$(NAME)" $(if $(YES),--yes)

@@ -16,12 +16,12 @@ The `Makefile` is the primary interface.
 
 All targets follow a `<resource>-<action>` naming convention (e.g. `skills-link`, `skills-sync`), except the `install`/`uninstall` aggregates.
 
-- `make install` — runs `skills-link`, `claude-md-link`, `commands-link`, `rules-link`, `scripts-link`, then `stow --adopt pi` into `~/.pi`.
+- `make install` — runs `skills-link`, `claude-md-link`, `commands-link`, `rules-link`, `scripts-link`, `agents-link`, then `stow --adopt pi` into `~/.pi`.
   Safe to re-run; it replaces existing symlinks and backs up real files it would overwrite.
 - `make uninstall` — reverses the above.
 - `make skills-sync` — clones/pulls `github.com/badlogic/pi-skills` into `/tmp/pi-skills` and copies each skill dir into `./skills/`.
   Bulk vendoring of the badlogic set; local edits to files under those `skills/<upstream-name>/` dirs are overwritten on next sync.
-  For single skills from arbitrary repos, use `skills-fetch` (see "Skill source management" below).
+  For single skills from arbitrary repos, use `skills-fetch` (see "Skill & agent source management" below).
 - `make extensions-sync` — clones/pulls `github.com/badlogic/pi-mono` into `/tmp/pi-mono` and copies the whitelisted set (see `PI_EXTENSIONS` in the Makefile) from `packages/coding-agent/examples/extensions` into `./pi/extensions/`.
   Same vendoring caveat applies.
 - `make plugins-check` — diffs `claude/plugins.txt` (desired, user-scoped) against `<CLAUDE_CONFIG_DIR>/plugins/installed_plugins.json` for each profile, reporting missing/extra.
@@ -30,28 +30,36 @@ All targets follow a `<resource>-<action>` naming convention (e.g. `skills-link`
   Copy-paste into a session in the right profile to close the drift.
   Installation itself stays manual — Claude Code has no headless `/plugin install`.
 
-## Skill source management
+## Skill & agent source management
 
-`scripts/skills-manager.sh` (wrapped by the `skills-*` make targets) fetches individual skills from any git repo at any subpath and tracks where each came from, so they can be updated later.
+`scripts/resource-manager.sh` (wrapped by the `skills-*` and `agents-*` make targets) fetches individual **skills** or **agents** from any git repo at any subpath and tracks where each came from, so they can be updated later.
 It is repo tooling and lives in top-level `scripts/`, not `claude/scripts/` — it is not symlinked into the profiles.
 Requires `git` and `jq`.
 
-Each managed skill carries a sidecar at `skills/<name>/.source.json`:
+The tool takes a leading `--kind skill|agent`; the make targets supply it.
+The two kinds differ only in structure:
+
+- A **skill** is a directory under `skills/` validated by a `SKILL.md`; its sidecar lives **inside** at `skills/<name>/.source.json`.
+- An **agent** is a single `.md` file under `claude/agents/`; its sidecar is a **sibling** at `claude/agents/<name>.source.json`.
+
+Each managed resource carries a `.source.json` sidecar:
 
 - **remote** — `{"repo","subpath","ref","commit","fetched_at"}`, where `commit` is the resolved SHA of `ref` at fetch time.
-- **local** — `{"repo": null, ...}` for skills authored in this repo (e.g. `retrospect`); `update` and `delete` treat them as having no upstream.
-- A skill dir with no `.source.json` is reported as `unmanaged`.
+- **local** — `{"repo": null, ...}` for resources authored in this repo (e.g. the `retrospect` skill); `update` and `delete` treat them as having no upstream.
+- A resource with no `.source.json` is reported as `unmanaged`.
 
-Targets:
+Targets (each `skills-*` has an `agents-*` twin taking the same variables):
 
-- `make skills-fetch REPO=owner/name SUBPATH=path/to/skill [REF=main] [NAME=…] [FORCE=1]` — shallow sparse-clone, validate the subpath has a `SKILL.md`, copy it into `skills/<NAME>/` (NAME defaults to the subpath basename), and write the sidecar.
-  Refuses to overwrite an existing dir unless `FORCE=1`.
-  Alternatively pass a full GitHub URL: `make skills-fetch URL='https://github.com/owner/name/tree/<ref>/<subpath>'`.
-- `make skills-list` — table of every skill with its status (`remote`/`local`/`unmanaged`) and source.
-- `make skills-update NAME=…` — re-resolve the recorded `ref`; if the upstream commit moved, re-copy and rewrite the sidecar (prints `old→new`), else report up to date.
+- `make skills-fetch REPO=owner/name SUBPATH=path/to/skill [REF=main] [NAME=…] [FORCE=1]` — shallow sparse-clone, validate the subpath, copy it into `skills/<NAME>/`, and write the sidecar.
+  Refuses to overwrite unless `FORCE=1`.
+  A full GitHub URL also works: `URL='https://github.com/owner/name/tree/<ref>/<subpath>'`.
+- `make agents-fetch REPO=owner/name SUBPATH=path/to/agent.md [REF=main] [NAME=…] [FORCE=1]` — same, but the subpath is a `.md` file (NAME defaults to its basename minus `.md`), copied into `claude/agents/<NAME>.md`.
+  Accepts a `/blob/` URL too.
+- `make skills-list` / `make agents-list` — table of every resource with its status (`remote`/`local`/`unmanaged`) and source.
+- `make skills-update NAME=…` / `make agents-update NAME=…` — re-resolve the recorded `ref`; if the upstream commit moved, re-copy and rewrite the sidecar (prints `old→new`), else report up to date.
   Skips `local` and `unmanaged`.
-- `make skills-update-all` — run the update over every remote skill.
-- `make skills-delete NAME=… [YES=1]` — remove `skills/<NAME>/` (prompts unless `YES=1`).
+- `make skills-update-all` / `make agents-update-all` — update every remote resource of that kind.
+- `make skills-delete NAME=… [YES=1]` / `make agents-delete NAME=… [YES=1]` — remove the resource (for agents, both the `.md` and its sidecar); prompts unless `YES=1`.
 
 Note: the make variable is `SUBPATH`, not `PATH` — `PATH=` on a make command line would clobber the shell `PATH` inside recipes and break `git`/`jq`.
 
@@ -72,9 +80,10 @@ Note: the make variable is `SUBPATH`, not `PATH` — `PATH=` on a make command l
   Adding a new upstream extension requires editing `PI_EXTENSIONS` in the Makefile.
 - **`skills/` is the single source of truth** for skills across pi and both Claude profiles.
   `skills-link` symlinks `$(CURDIR)/skills` into `~/.pi/skills`, `~/.claude-personal/skills`, `~/.claude-work/skills`.
-- **`claude/commands/`, `claude/rules/`, and `claude/scripts/`** are the single source of truth for user-scoped slash commands, rules, and helper scripts across both Claude profiles.
-`commands-link` / `rules-link` / `scripts-link` symlink them into `~/.claude-personal/` and `~/.claude-work/` (not into `~/.pi/` — pi doesn't consume these).
+- **`claude/commands/`, `claude/rules/`, `claude/scripts/`, and `claude/agents/`** are the single source of truth for user-scoped slash commands, rules, helper scripts, and subagents across both Claude profiles.
+`commands-link` / `rules-link` / `scripts-link` / `agents-link` symlink them into `~/.claude-personal/` and `~/.claude-work/` (not into `~/.pi/` — pi doesn't consume these; pi has its own vendored `pi/extensions/subagent/agents/`).
 The shared `CLAUDE.md` references scripts via `$CLAUDE_CONFIG_DIR/scripts/...` so the path resolves correctly under either profile.
+Agents are single `.md` files fetched and tracked by `resource-manager.sh` (see "Skill & agent source management").
 - **`plugins.txt` is desired-state only.**
   Installation is manual per-profile; the Makefile only reports drift.
   Lines are `<name>@<marketplace>`; blanks and `#` comments are ignored.
@@ -83,6 +92,6 @@ The shared `CLAUDE.md` references scripts via `$CLAUDE_CONFIG_DIR/scripts/...` s
 
 - Treat `skills/` and `pi/extensions/` as vendored unless intentionally diverging from upstream — a re-sync (or `skills-update`) clobbers local edits.
   If you do diverge, note it somewhere durable (commit message or a comment in the file) because there's no automated drift detection against upstream.
-- A skill's `.source.json` sidecar is regenerated by `skills-manager.sh` on fetch/update, so don't hand-edit it expecting persistence; change the source by re-fetching.
-  Skills authored here (no upstream) keep a `{"repo": null}` sidecar so they survive `skills-update-all` untouched.
+- A resource's `.source.json` sidecar is regenerated by `resource-manager.sh` on fetch/update, so don't hand-edit it expecting persistence; change the source by re-fetching.
+  Resources authored here (no upstream) keep a `{"repo": null}` sidecar so they survive `skills-update-all` / `agents-update-all` untouched.
 - When adding a new profile, update `CLAUDE_CONFIG_DIRS` (Makefile line 9) — it drives both the CLAUDE.md and skills symlink loops.
