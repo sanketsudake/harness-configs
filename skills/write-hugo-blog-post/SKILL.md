@@ -1,6 +1,6 @@
 ---
 name: write-hugo-blog-post
-description: Use when authoring or editing a blog post in a Hugo site (commonly Docsy) — triggers "write a blog post", "publish a tutorial", "add a post". Covers file layout (single file vs page bundle), front matter, the featured-image to card+OG flow, and the Docsy single-post layout trap.
+description: Use when authoring or editing a blog post in a Hugo site (any theme) — triggers "write a blog post", "publish a tutorial", "add a post". Covers file layout (single file vs page bundle), front matter, the featured-image to card+OG flow, and the layout that actually renders a post.
 ---
 
 # Writing a Hugo Blog Post
@@ -52,15 +52,14 @@ Do not also embed the featured image at the top of the post body; the card alrea
 - One sentence per line if the project uses that Markdown style (CommonMark renders single newlines as spaces; diffs become per-sentence).
 - Code fences with language hints; real, runnable commands with expected output.
 - Use your project's version shortcodes for version strings — a hardcoded version goes stale silently.
-- Internal links as absolute paths (`/docs/usage/…`); avoid `{{< relref >}}` unless your project uses it for regular pages (Docsy's relref shortcode only resolves section `_index.md` paths).
+- Internal links as absolute paths (`/docs/usage/…`); use `{{< relref >}}` only if your project/theme supports it for regular pages — some themes restrict it to section `_index.md` paths.
 - Images get descriptive alt text; lightbox (click-to-zoom) typically wires up automatically.
 - Use your project's category set, version shortcodes, and link conventions; see the project's content conventions.
 
-## The Docsy Single-Post Layout Trap
+## Find the layout that actually renders a post
 
-In Docsy, the file that actually renders a blog post is `layouts/blog/_td-content.html`.
-A `layouts/blog/content.html` override is **dead code** — it is never called.
-If you need to customize a post's layout, edit `_td-content.html`.
+Themes often ship more than one candidate layout for a single page; only one is actually used, and editing the wrong (dead) one changes nothing.
+Before customizing a post's layout, confirm which template Hugo selects (build with `--printPathWarnings`, or check the theme's lookup order) and edit that file.
 
 ## Verify
 
@@ -71,14 +70,14 @@ hugo server
 Check:
 - `/blog/` — card shows the thumbnail (not the fallback), correct date/author/reading time/category pill, sensible excerpt.
 - `/blog/<slug>/` — byline renders, images load, code blocks highlight.
-- Run `./build.sh` (or `hugo --minify --printPathWarnings --gc`) to catch bad front matter and broken refs; see the `verify-hugo-docsy-build` skill.
+- Run `./build.sh` (or `hugo --minify --printPathWarnings --gc`) to catch bad front matter and broken refs; see the `verify-hugo-build` skill.
 
 ## Common Mistakes
 
 | Mistake | Symptom | Fix |
 |---|---|---|
 | `images` path typo or file not under `static/` | Card shows fallback thumbnail unexpectedly | Path is relative to `static/`; check the filename |
-| Edited `layouts/blog/content.html` for layout tweaks | Nothing changes | Dead file — Docsy renders `layouts/blog/_td-content.html` |
+| Edited a layout candidate that is not the selected template | Nothing changes | Confirm the selected template (`--printPathWarnings`) and edit that file |
 | Added "5 min read" or a byline manually | Duplicated meta on the post | Both are automatic from the layout |
 | New category invented | Lonely taxonomy page with one post | Reuse an existing category |
 | Date without timezone or set in the future | Post sorts oddly or does not appear | Use ISO-8601 with TZ offset and a current time |
