@@ -1,0 +1,19 @@
+{{- /* llms.txt — generated content map for LLM crawlers (see llmstxt.org).
+       Rendered via the `llms` output format declared in config/_default/hugo.toml.
+       Do not hand-edit the output; edit this template. */ -}}
+# {{ .Site.Title }}
+
+> {{ .Site.Params.description }}
+
+{{ .Site.Params.llmsIntro | default (printf "Content by %s." .Site.Params.author.name) }}
+
+## Posts
+{{ range (where .Site.RegularPages "Section" "posts").ByDate.Reverse -}}
+- [{{ .Title }}]({{ .Permalink }}){{ with .Summary }}: {{ . | plainify | htmlUnescape | chomp }}{{ end }}{{ with .Params.canonicalURL }} (canonical: {{ . }}){{ end }}
+{{ end }}
+## Talks
+{{ range (where .Site.RegularPages "Section" "talks").ByDate.Reverse -}}
+- [{{ .Title }}]({{ .Permalink }}){{ with .Params.event }} — {{ . }}{{ end }}{{ with .Summary }}: {{ . | plainify | htmlUnescape | chomp }}{{ end }}
+{{ end }}
+## About
+- [About {{ .Site.Params.author.name }}]({{ "about/" | absURL }}){{ with .Site.Params.author.bio }}: {{ . }}{{ end }}

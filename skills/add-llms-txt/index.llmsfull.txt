@@ -1,0 +1,19 @@
+{{- /* llms-full.txt — full plain-text post bodies for LLM ingestion.
+       Rendered via the `llmsfull` output format (config/_default/hugo.toml).
+       Posts only — talks are slide-only and carry little body text. */ -}}
+# {{ .Site.Title }} — full content
+
+> {{ .Site.Params.description }}
+
+{{ range (where .Site.RegularPages "Section" "posts").ByDate.Reverse }}
+---
+
+## {{ .Title }}
+
+URL: {{ .Permalink }}
+{{ with .Params.canonicalURL }}Canonical: {{ . }}
+{{ end }}Date: {{ .Date.Format "2006-01-02" }}
+{{ with .Params.tags }}Tags: {{ delimit . ", " }}
+{{ end }}
+{{ .Plain | htmlUnescape | chomp }}
+{{ end }}
