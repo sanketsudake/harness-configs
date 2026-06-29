@@ -64,8 +64,8 @@ The `Makefile` derives all paths from `$(CURDIR)`, so the repo can live anywhere
 
 ### Skills
 
-Shared by Claude Code and pi — 35 of them, grouped below.
-Most are now authored in this repo (`local`); the rest are vendored from [pi-skills](https://github.com/badlogic/pi-skills) (`brave-search`, the Google CLIs, `transcribe`, `vscode`, `youtube-transcript`), the [cursor-team-kit](https://github.com/cursor/plugins) (`deslop`, `make-pr-easy-to-review`, `pr-review-canvas`, `thermo-nuclear-code-quality-review`), and the [skills.sh](https://www.skills.sh/) ecosystem (`find-skills`, `agent-browser`).
+Shared by Claude Code and pi — 36 of them, grouped below.
+Most are now authored in this repo (`local`); the rest are vendored from [pi-skills](https://github.com/badlogic/pi-skills) (`brave-search`, the Google CLIs, `transcribe`, `vscode`, `youtube-transcript`), the [cursor-team-kit](https://github.com/cursor/plugins) (`deslop`, `make-pr-easy-to-review`, `pr-review-canvas`, `thermo-nuclear-code-quality-review`), and the [skills.sh](https://www.skills.sh/) ecosystem (`find-skills`, `agent-browser`, `caveman`).
 Each carries a `.source.json` sidecar; run `make skills-list` to see every one's source and status.
 To find more, `make skills-find Q=…` searches [skills.sh](https://www.skills.sh/) and `make skills-add SOURCE=owner/repo@skill` vendors the result into `skills/` (see [Makefile reference](#makefile-reference)).
 
@@ -140,6 +140,7 @@ The owned skills lean heavily toward maintaining a Hugo site and an OSS Go proje
 |-------|---------|
 | `harvest-automation` | Mine past Claude Code sessions and turn recurring patterns into skills, CLAUDE.md entries, and memory. |
 | `find-skills` | Discover and install skills from the skills.sh ecosystem on request. |
+| `caveman` | Ultra-compressed "caveman" response mode that cuts token use while keeping technical accuracy. |
 
 ### Claude commands, agents, rules, scripts
 
