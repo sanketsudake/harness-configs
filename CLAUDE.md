@@ -63,6 +63,25 @@ Targets (each `skills-*` has an `agents-*` twin taking the same variables):
 
 Note: the make variable is `SUBPATH`, not `PATH` — `PATH=` on a make command line would clobber the shell `PATH` inside recipes and break `git`/`jq`.
 
+## skills.sh discovery + fetch (the `skills` CLI)
+
+`scripts/skills-vendor.sh` (wrapped by `skills-find` / `skills-add`) is a thin front-end onto the vercel-labs [`skills`](https://github.com/vercel-labs/skills) CLI — the [skills.sh](https://www.skills.sh/) ecosystem — for **discovering** skills the repo doesn't already track and **fetching** them into `skills/`.
+Requires `npx` (Node.js) and `jq`; it also relies on `resource-manager.sh`.
+
+- `make skills-find [Q=query] [OWNER=org]` — `npx skills find`; prints ranked skills.sh hits as `owner/repo@skill`.
+- `make skills-add SOURCE=owner/repo [SKILL='a b'] [ALL=1] [REF=…] [FORCE=1]` — fetch + vendor.
+  `SOURCE` accepts the `owner/repo@skill` form `skills-find` prints (paste it verbatim); the `@skill` suffix is peeled into a selected skill.
+
+The integration is deliberately **hybrid**, not a replacement for `resource-manager.sh`.
+`skills-vendor.sh` uses the CLI only as a *resolver/fetcher*: it runs `skills add … --copy` into a throwaway staging dir, reads the CLI's project `skills-lock.json` (per skill: `source`, `sourceType`, `skillPath`), then re-vendors each through `resource-manager.sh fetch`.
+So a CLI-fetched skill lands in `skills/<name>/` with the **same `.source.json` sidecar** as any other, and `skills-list` / `skills-update` / `skills-delete` plus the Makefile symlinks keep working unchanged — no second update mechanism, no CLI lockfile committed to the repo.
+
+Why not let the `skills` CLI own installation directly (its `add`/`update`/`experimental_install`):
+
+- Its agent→path map is fixed (`claude-code` → `~/.claude/skills`); it ignores `CLAUDE_CONFIG_DIR`, so it can't target the two profiles (`~/.claude-personal`, `~/.claude-work`) — which our single symlinked `skills/` tree already serves.
+- It manages skills only, not the `claude/agents/` subagents (`resource-manager.sh --kind agent` still owns those).
+- It installs into per-agent dirs from its own canonical copy; this repo's reproducibility comes from committing the vendored `skills/` tree, so vendoring stays the backbone.
+
 ## Architecture notes that are easy to miss
 
 - **Two Claude profiles via `CLAUDE_CONFIG_DIR`.**

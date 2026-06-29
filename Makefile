@@ -18,6 +18,7 @@ SCRIPTS_DIR := $(CLAUDE_DIR)/scripts
 AGENTS_DIR := $(CLAUDE_DIR)/agents
 
 RESOURCE_MANAGER := $(CURDIR)/scripts/resource-manager.sh
+SKILLS_VENDOR := $(CURDIR)/scripts/skills-vendor.sh
 
 PI_MONO_REPO := https://github.com/badlogic/pi-mono
 PI_MONO_CACHE := /tmp/pi-mono
@@ -43,6 +44,7 @@ SHELL := /bin/bash
 	commands-link commands-unlink rules-link rules-unlink scripts-link scripts-unlink \
 	agents-link agents-unlink \
 	skills-sync extensions-sync plugins-check plugins-sync \
+	skills-find skills-add \
 	skills-fetch skills-list skills-update skills-update-all skills-delete \
 	agents-fetch agents-list agents-update agents-update-all agents-delete
 
@@ -267,6 +269,27 @@ extensions-sync:
 	for ext in $(PI_EXTENSIONS); do \
 		cp -r $(PI_MONO_EXTENSIONS_SRC)/$$ext $(PI_EXTENSIONS_DIR)/; \
 	done
+
+# --- skills.sh discovery + fetch (scripts/skills-vendor.sh) ----------------
+# Front-end onto the vercel-labs `skills` CLI (npx skills, the skills.sh
+# ecosystem). skills-find discovers; skills-add fetches via the CLI and vendors
+# the result into skills/ through resource-manager.sh, so each lands with a
+# .source.json and stays manageable by skills-list / skills-update / skills-delete.
+# The CLI is used only as a resolver/fetcher — it never installs per-agent, so
+# the two Claude profiles and claude/agents/ subagents are unaffected.
+# Set GITHUB_TOKEN (or have `gh` logged in) to avoid anonymous rate limits.
+
+skills-find:
+	@command -v npx >/dev/null || { echo "npx (Node.js) required"; exit 1; }
+	npx -y skills@latest find $(if $(Q),"$(Q)") $(if $(OWNER),--owner "$(OWNER)")
+
+skills-add:
+	@test -n "$(SOURCE)" || { echo "usage: make skills-add SOURCE=owner/repo [SKILL='a b'] [ALL=1] [REF=main] [FORCE=1]"; exit 1; }
+	@$(SKILLS_VENDOR) --source "$(SOURCE)" \
+		$(if $(SKILL),--skill "$(SKILL)") \
+		$(if $(ALL),--all) \
+		$(if $(REF),--ref "$(REF)") \
+		$(if $(FORCE),--force)
 
 # --- Source management (scripts/resource-manager.sh) -----------------------
 # Fetch one skill (dir under skills/) or agent (.md under claude/agents/) from

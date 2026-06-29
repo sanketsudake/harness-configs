@@ -20,6 +20,8 @@ Paths are hardcoded to one machine; adapt them before adopting (see [Adopt it](#
   Confirm-before-destructive, dirty-repo guard, protected paths, and a permission gate run as agent extensions, not as hope.
 - **Desired-state plugins.**
   `plugins.txt` is the declared plugin set; `make plugins-check` reports drift per profile.
+- **Borrow a popular CLI's discovery without adopting its model.**
+  `make skills-find` / `skills-add` front the [`skills`](https://github.com/vercel-labs/skills) CLI (the skills.sh ecosystem) for discovery and fetching, but pipe the result back into the repo's own vendoring + `.source.json` tracking — so the dual profiles, subagent management, and committed/offline skills all survive.
 
 ## Layout
 
@@ -43,6 +45,7 @@ harness-configs/
 │   └── extensions/        # TypeScript extensions (+ subagent/ dir extension)
 └── scripts/               # repo tooling (not symlinked into profiles)
     ├── resource-manager.sh    # fetch/track/update skills & agents
+    ├── skills-vendor.sh       # skills.sh discovery/fetch → vendored into skills/
     └── claude-multi-account.sh # pclaude/wclaude wrapper snippets
 ```
 
@@ -64,6 +67,7 @@ The `Makefile` derives all paths from `$(CURDIR)`, so the repo can live anywhere
 Shared by Claude Code and pi — 34 of them, grouped below.
 Most are now authored in this repo (`local`); the rest are vendored from [pi-skills](https://github.com/badlogic/pi-skills) (`brave-search`, `browser-tools`, the Google CLIs, `transcribe`, `vscode`, `youtube-transcript`) and the [cursor-team-kit](https://github.com/cursor/plugins) (`deslop`, `make-pr-easy-to-review`, `pr-review-canvas`, `thermo-nuclear-code-quality-review`).
 Each carries a `.source.json` sidecar; run `make skills-list` to see every one's source and status.
+To find more, `make skills-find Q=…` searches [skills.sh](https://www.skills.sh/) and `make skills-add SOURCE=owner/repo@skill` vendors the result into `skills/` (see [Makefile reference](#makefile-reference)).
 
 The owned skills lean heavily toward maintaining a Hugo site and an OSS Go project end-to-end — authoring, CI triage, dependency hygiene, security remediation, and backlog/PR review — each one atomic so it can run alone or chain with the others.
 
@@ -174,7 +178,7 @@ TypeScript extensions stowed into `~/.pi/extensions`, vendored from the [pi-mono
 ## Adopt it
 
 Prerequisites: `git`, [GNU `stow`](https://www.gnu.org/software/stow/), and `jq`.
-`gh` is needed only for the GitHub-facing skills; `python3` for the markdown formatter and the Python-backed skills (`generate-og-images`, `report-site-analytics`, `transcribe`, …).
+`gh` is needed only for the GitHub-facing skills; `python3` for the markdown formatter and the Python-backed skills (`generate-og-images`, `report-site-analytics`, `transcribe`, …); `npx` (Node.js) only for the `skills-find` / `skills-add` discovery targets.
 Individual skills declare their own extra tools (svgo, hugo, the Brave API key, etc.) in their `SKILL.md`.
 
 ```sh
@@ -210,6 +214,8 @@ All targets follow `<resource>-<action>`; `install` / `uninstall` are the aggreg
 | `install` / `uninstall` | Link/stow everything into the profiles, or reverse it. |
 | `skills-sync` | Bulk-vendor the [pi-skills](https://github.com/badlogic/pi-skills) set into `skills/`. |
 | `extensions-sync` | Vendor the whitelisted pi-mono extensions into `pi/extensions/`. |
+| `skills-find [Q=… OWNER=…]` | Discover skills on [skills.sh](https://www.skills.sh/) via the `skills` CLI; prints `owner/repo@skill` hits. |
+| `skills-add SOURCE=… [SKILL=…]` | Fetch from skills.sh/GitHub via the `skills` CLI and vendor into `skills/` with a `.source.json`. |
 | `skills-fetch REPO=… SUBPATH=…` | Fetch one skill from any repo/subpath and write its `.source.json`. |
 | `agents-fetch REPO=… SUBPATH=…` | Same, for a single agent `.md` file. |
 | `skills-list` / `agents-list` | Table of every resource with status (`remote`/`local`/`unmanaged`) and source. |
