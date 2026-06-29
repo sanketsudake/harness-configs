@@ -15,7 +15,7 @@ Paths are hardcoded to one machine; adapt them before adopting (see [Adopt it](#
 - **Two Claude profiles via `CLAUDE_CONFIG_DIR`.**
   `pclaude` / `wclaude` wrappers point Claude Code at `~/.claude-personal` or `~/.claude-work`, so personal and work accounts stay isolated but share the same skills and global instructions.
 - **Per-resource source tracking.**
-  Each fetched skill/agent carries a `.source.json` sidecar recording its origin repo, subpath, ref, and resolved commit, so it can be updated later with one command — vendoring without losing provenance.
+  Each skill/agent carries a `.source.json` sidecar recording its origin repo, subpath, ref, and resolved commit, so a vendored one can be updated later with one command — vendoring without losing provenance, and locally-authored ones are marked too.
 - **Guardrail extensions for pi.**
   Confirm-before-destructive, dirty-repo guard, protected paths, and a permission gate run as agent extensions, not as hope.
 - **Desired-state plugins.**
@@ -27,12 +27,13 @@ Paths are hardcoded to one machine; adapt them before adopting (see [Adopt it](#
 harness-configs/
 ├── Makefile               # primary interface — all <resource>-<action> targets
 ├── CLAUDE.md              # guide for agents working IN this repo
+├── LICENSE                # Apache-2.0
 ├── claude/                # Claude Code config, symlinked into both profiles
 │   ├── CLAUDE.md          # shared global user instructions (both profiles)
 │   ├── commands/          # slash commands
 │   ├── agents/            # subagents (+ .source.json sidecars)
-│   ├── rules/             # rule files
-│   ├── scripts/           # helper scripts referenced by CLAUDE.md
+│   ├── rules/             # rule files (currently just a .gitkeep)
+│   ├── scripts/           # helper scripts (md formatter, statusline hook)
 │   └── plugins.txt        # desired-state plugin list
 ├── skills/                # shared skills for Claude + pi (source of truth)
 │   └── <name>/SKILL.md    # each with a .source.json sidecar
@@ -60,32 +61,87 @@ The `Makefile` derives all paths from `$(CURDIR)`, so the repo can live anywhere
 
 ### Skills
 
-Shared by Claude Code and pi.
-Most are fetched from upstream repos and tracked via `.source.json`; a few are authored here.
-Run `make skills-list` to see each one's source and status.
+Shared by Claude Code and pi — 34 of them, grouped below.
+Most are now authored in this repo (`local`); the rest are vendored from [pi-skills](https://github.com/badlogic/pi-skills) (`brave-search`, `browser-tools`, the Google CLIs, `transcribe`, `vscode`, `youtube-transcript`) and the [cursor-team-kit](https://github.com/cursor/plugins) (`deslop`, `make-pr-easy-to-review`, `pr-review-canvas`, `thermo-nuclear-code-quality-review`).
+Each carries a `.source.json` sidecar; run `make skills-list` to see every one's source and status.
+
+The owned skills lean heavily toward maintaining a Hugo site and an OSS Go project end-to-end — authoring, CI triage, dependency hygiene, security remediation, and backlog/PR review — each one atomic so it can run alone or chain with the others.
+
+**Hugo / static-site authoring & SEO**
+
+| Skill | Purpose |
+|-------|---------|
+| `write-hugo-blog-post` | Author/edit a Hugo post: file layout, front matter, featured-image → card+OG flow. |
+| `author-mermaid-diagram` | Add a mermaid diagram that renders readably in a narrow content column. |
+| `generate-og-images` | Render branded 1200×630 social-share cards over an AI/image/gradient background. |
+| `optimize-svg` | Shrink an SVG asset with svgo, keeping the result only if it actually got smaller. |
+| `add-llms-txt` | Add `/llms.txt`, `/llms-full.txt`, and per-page markdown twins, generated from content. |
+| `audit-static-site` | Crawl built HTML and flag SEO/UX issues (titles, meta, alt text, thin/orphan pages). |
+| `report-site-analytics` | Pull a dated GA4 + Search Console report (top pages, queries, CTR, near-misses). |
+| `verify-hugo-build` | Build the site the way the host runs it before declaring it done. |
+| `bump-hugo-versions` | Bump Hugo/Go/theme versions pinned in a deploy config (netlify.toml / Actions). |
+
+**CI, Go & dependencies**
+
+| Skill | Purpose |
+|-------|---------|
+| `debug-ci` | Triage and root-cause a failing GitHub Actions run, cheapest log fetch first. |
+| `watch-ci` | Watch a PR's checks to terminal state, surfacing each transition as a notification. |
+| `analyze-go-pprof` | Pull CI-captured heap/goroutine profiles; separate a real leak from baseline cost. |
+| `analyze-prometheus-tsdb` | Query a CI-uploaded Prometheus TSDB snapshot for over-the-run time series. |
+| `go-deps-security-sweep` | Grouped, bisectable Go dependency upgrade — one commit per logical group. |
+| `improve-codecov-coverage` | Rank low-covered Go packages, write targeted tests, verify the delta. |
+| `bump-ci-tool-versions` | Bump runtime-downloaded CLI versions (helm, kind, skaffold, cosign, …) in workflows. |
+
+**PR review & code quality**
+
+| Skill | Purpose |
+|-------|---------|
+| `make-pr-easy-to-review` | Clean noisy history, improve PR descriptions, and annotate diffs without changing behavior. |
+| `pr-review-canvas` | Generate an interactive HTML PR-review walkthrough from `gh` API data. |
+| `resolve-bot-review-threads` | Fix bot/Copilot comments, resolve the threads, and re-request review. |
+| `thermo-nuclear-code-quality-review` | Extremely strict maintainability review (abstraction, giant files, spaghetti). |
+| `deslop` | Remove AI-generated code slop and clean up code style. |
+
+**GitHub security & maintenance**
+
+| Skill | Purpose |
+|-------|---------|
+| `triage-gh-backlog` | Scrub an open issue/PR backlog like a PM, backed by a local SQLite mirror. |
+| `author-security-advisory` | Triage/draft a repo security advisory and produce paste-ready GHSA content. |
+| `remediate-codeql-alerts` | Fix or dismiss code-scanning/CodeQL alerts and verify on the merge ref. |
+| `source-code-for-gh-advisory` | Obtain and reproduce the vulnerable source referenced by a GHSA/CVE. |
+
+**Search, media & desktop**
 
 | Skill | Purpose |
 |-------|---------|
 | `brave-search` | Web search and content extraction via the Brave Search API; no browser needed. |
 | `browser-tools` | Interactive browser automation via the Chrome DevTools Protocol. |
-| `deslop` | Remove AI-generated code slop and clean up code style. |
+| `youtube-transcript` | Fetch YouTube transcripts for summarization and analysis. |
+| `transcribe` | Local speech-to-text on Apple Silicon macOS. |
+| `vscode` | VS Code integration for viewing diffs and comparing files. |
+
+**Google Workspace CLIs**
+
+| Skill | Purpose |
+|-------|---------|
 | `gccli` | Google Calendar CLI: list calendars, view/create/update events, check availability. |
 | `gdcli` | Google Drive CLI: list, search, upload, download, and share files and folders. |
 | `gmcli` | Gmail CLI: search, read threads, send, manage drafts, labels, and attachments. |
-| `harvest-automation` | Mine past Claude Code sessions for recurring patterns; turn them into skills, CLAUDE.md entries, and memory. |
-| `make-pr-easy-to-review` | Clean noisy history, improve PR descriptions, and annotate diffs without changing behavior. |
-| `pr-review-canvas` | Generate an interactive HTML PR-review walkthrough from `gh` API data. |
-| `source-code-for-gh-advisory` | Obtain and reproduce the vulnerable source referenced by a GHSA/CVE. |
-| `thermo-nuclear-code-quality-review` | Extremely strict maintainability review (abstraction, giant files, spaghetti). |
-| `transcribe` | Local speech-to-text on Apple Silicon macOS. |
-| `vscode` | VS Code integration for viewing diffs and comparing files. |
-| `youtube-transcript` | Fetch YouTube transcripts for summarization and analysis. |
 
-### Claude commands, agents, rules
+**Meta**
+
+| Skill | Purpose |
+|-------|---------|
+| `harvest-automation` | Mine past Claude Code sessions and turn recurring patterns into skills, CLAUDE.md entries, and memory. |
+
+### Claude commands, agents, rules, scripts
 
 - **Command** `/history` — read the global conversation history and present it in a scannable format.
-- **Agent** `thermo-nuclear-code-quality-review` — strict maintainability audit (1k-line rule, spaghetti, code-judo), driven by the matching skill.
-- **Rules** — `claude/rules/` is wired up for rule files (currently empty).
+- **Agent** `thermo-nuclear-code-quality-review` — strict maintainability audit (1k-line rule, spaghetti, code-judo), driven by the matching skill; vendored from the cursor-team-kit with a `.source.json` sidecar.
+- **Rules** — `claude/rules/` is wired up for rule files (currently just a `.gitkeep`).
+- **Scripts** — `md-one-sentence-per-line.py` (the markdown formatter the shared `CLAUDE.md` points at) and `statusline-command.sh` (a `statusLine` hook script: `[model] folder | branch · context bar · $cost · elapsed`).
 
 ### Shared `CLAUDE.md`
 
@@ -118,7 +174,8 @@ TypeScript extensions stowed into `~/.pi/extensions`, vendored from the [pi-mono
 ## Adopt it
 
 Prerequisites: `git`, [GNU `stow`](https://www.gnu.org/software/stow/), and `jq`.
-`gh` is needed only for the GitHub-facing skills; `python3` only for the markdown formatter.
+`gh` is needed only for the GitHub-facing skills; `python3` for the markdown formatter and the Python-backed skills (`generate-og-images`, `report-site-analytics`, `transcribe`, …).
+Individual skills declare their own extra tools (svgo, hugo, the Brave API key, etc.) in their `SKILL.md`.
 
 ```sh
 git clone https://github.com/sanketsudake/harness-configs.git ~/personal/harness-configs
@@ -170,3 +227,8 @@ Use `SUBPATH=`, never `PATH=` — the latter would clobber the shell `PATH` insi
   A re-sync or `skills-update` overwrites local edits — diverge intentionally and note it durably.
 - A `.source.json` is regenerated on fetch/update, so don't hand-edit it; locally authored resources carry `{"repo": null}` and survive `update-all` untouched.
 - Plugin installation is manual per profile — Claude Code has no headless `/plugin install`; the Makefile only reports drift.
+
+## License
+
+[Apache-2.0](LICENSE).
+Vendored skills and extensions remain under their upstream licenses; see each resource's `.source.json` for its origin.
