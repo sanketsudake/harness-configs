@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A dotfiles-style config repo that provisions two tools across two Claude profiles (personal/work):
 
 - **pi** (the `pi-mono` coding agent) — config lives under `pi/` and is stowed into `~/.pi` via GNU stow.
-- **Claude Code** — a shared global `CLAUDE.md`, `skills/`, `commands/`, and `rules/` are symlinked into `~/.claude-personal/` and `~/.claude-work/`.
+- **Claude Code** — a shared global `CLAUDE.md`, `skills/`, `commands/`, `rules/`, `scripts/`, and `agents/` are symlinked into `~/.claude-personal/` and `~/.claude-work/`.
 
 There is no application to build/test/lint.
 The `Makefile` is the primary interface.
@@ -83,10 +83,15 @@ Note: the make variable is `SUBPATH`, not `PATH` — `PATH=` on a make command l
 - **`claude/commands/`, `claude/rules/`, `claude/scripts/`, and `claude/agents/`** are the single source of truth for user-scoped slash commands, rules, helper scripts, and subagents across both Claude profiles.
 `commands-link` / `rules-link` / `scripts-link` / `agents-link` symlink them into `~/.claude-personal/` and `~/.claude-work/` (not into `~/.pi/` — pi doesn't consume these; pi has its own vendored `pi/extensions/subagent/agents/`).
 The shared `CLAUDE.md` references scripts via `$CLAUDE_CONFIG_DIR/scripts/...` so the path resolves correctly under either profile.
+`claude/scripts/` currently holds `md-one-sentence-per-line.py` (referenced by the shared `CLAUDE.md`) and `statusline-command.sh` (a `statusLine` hook script — it is not symlinked-by-reference; a profile must opt in via its own `settings.json`, which is not tracked in this repo).
 Agents are single `.md` files fetched and tracked by `resource-manager.sh` (see "Skill & agent source management").
 - **`plugins.txt` is desired-state only.**
   Installation is manual per-profile; the Makefile only reports drift.
   Lines are `<name>@<marketplace>`; blanks and `#` comments are ignored.
+- **Two `.gitignore`'d dirs live in the tree but are not checked in.**
+  `docs/superpowers/` holds local-only design artifacts (brainstorming specs, implementation plans).
+  `skills/bin/` holds the `parakeet-cpp-transcribe` binary the `transcribe` skill downloads at runtime — under the symlinked profiles its `../bin` resolves back into the repo, so it's ignored to keep the blob out of git.
+  Don't expect either to be present after a fresh clone.
 
 ## Conventions when editing
 
