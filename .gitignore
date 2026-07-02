@@ -8,3 +8,8 @@ docs/superpowers/
 # resolves into the repo tree, so ignore it to keep the blob out of git.
 skills/bin/
 __pycache__/
+
+# Runtime npm deps some skills install when first run (e.g. youtube-transcript);
+# under the symlinked profiles they land in the repo tree, so keep them out of git.
+skills/*/node_modules/
+skills/*/package-lock.json
