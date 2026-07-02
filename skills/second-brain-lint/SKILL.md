@@ -17,7 +17,9 @@ Run all checks below, then present a consolidated report.
 
 ### 1. Broken wikilinks
 
-Scan all wiki pages for `[[wikilink]]` references. For each link, verify the target page exists. Report any broken links.
+Scan all wiki pages for `[[wikilink]]` references.
+For each link, verify the target page exists.
+Report any broken links.
 
 ```bash
 # Find all wikilinks across wiki pages
@@ -37,27 +39,38 @@ For each `.md` file in `wiki/sources/`, `wiki/entities/`, `wiki/concepts/`, `wik
 
 ### 3. Contradictions
 
-Read pages that share entities or concepts and look for conflicting claims. Flag when:
+Look for conflicting claims between related pages.
+Flag when:
 - Two source summaries make opposing claims about the same topic
 - An entity page contains information that conflicts with a source summary
 - Dates, figures, or factual claims differ between pages
 
+Do not read all page pairs.
+If `qmd` is installed, for each entity/concept page run `qmd search "<page title>" --path wiki/` and cross-read only the top ~5 hits that are not already wikilinked from that page.
+Fallback without qmd: restrict pair-reads to pages sharing a frontmatter tag.
+
 ### 4. Stale claims
 
-Cross-reference source dates with wiki content. Flag when:
+Cross-reference source dates with wiki content.
+Flag when:
 - A concept page cites only old sources and newer sources exist on the same topic
 - Entity information hasn't been updated despite newer sources mentioning that entity
 
 ### 5. Missing pages
 
-Scan for `[[wikilinks]]` that point to pages that don't exist yet. These are topics the wiki mentions but hasn't given their own page. Assess whether they warrant a page.
+Scan for `[[wikilinks]]` that point to pages that don't exist yet.
+These are topics the wiki mentions but hasn't given their own page.
+Assess whether they warrant a page.
 
 ### 6. Missing cross-references
 
-Find pages that discuss the same topics but don't link to each other. Look for:
+Find pages that discuss the same topics but don't link to each other.
+Look for:
 - Entity pages that mention concepts without linking them
 - Concept pages that mention entities without linking them
 - Source summaries that cover the same topic but don't reference each other
+
+Use the same qmd candidate search as check 3 to find related-but-unlinked pages without O(n²) reads.
 
 ### 7. Index consistency
 
@@ -72,6 +85,22 @@ Based on the wiki's current coverage, suggest:
 - Topics mentioned frequently but lacking depth
 - Questions the wiki can't answer well
 - Areas where a web search could fill in missing information
+
+### 9. Un-deepened high-value pages
+
+List light-ingested source pages and rank them as deepen candidates:
+
+```bash
+grep -l '^ingest: light' wiki/sources/*.md
+```
+
+Rank by (a) highlight count in the page, (b) inbound wikilink count (`grep -rc '\[\[Page Title\]\]' wiki/`).
+Report the top 5 as "suggest `/second-brain-ingest deepen`".
+
+### 10. Junk entities
+
+Find entity pages whose names fail the author-name heuristic — all digits, domain-like, letterless.
+Propose deletion plus the matching index and log cleanup.
 
 ## Report Format
 
@@ -100,7 +129,8 @@ For each finding, include:
 ## After the Report
 
 Ask the user:
-> "Found N errors, N warnings, and N info items. Want me to fix any of these?"
+> "Found N errors, N warnings, and N info items.
+> Want me to fix any of these?"
 
 If the user agrees, fix issues and report what changed.
 
@@ -113,9 +143,13 @@ Append to `wiki/log.md`:
 
 ## When to Lint
 
-- **After every 10 ingests** — catches cross-reference gaps while they're fresh
-- **Monthly at minimum** — catches stale claims and orphan pages over time
-- **Before major queries** — ensures the wiki is healthy before you rely on it for analysis
+Two modes:
+
+- **Quick lint — automatic at the end of every batch ingest.**
+  Cheap mechanical checks only: broken wikilinks (1), index consistency (7), junk-entity scan (10), and a log↔raw detection round-trip (the unprocessed-file diff from `/second-brain-ingest` must be empty right after a batch).
+  If `qmd` is installed, also run `qmd update` so new pages are searchable.
+- **Full lint — monthly, on demand, or before major synthesis.**
+  All checks including contradictions, stale claims, and deepen candidates.
 
 ## Related Skills
 

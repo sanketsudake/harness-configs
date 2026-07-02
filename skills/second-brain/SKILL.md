@@ -10,48 +10,60 @@ allowed-tools: Bash Read Write Glob Grep
 
 # Second Brain — Onboarding Wizard
 
-Set up a new Obsidian knowledge base using the LLM Wiki pattern. The LLM acts as librarian — reading raw sources, compiling them into a structured interlinked wiki, and maintaining it over time.
+Set up a new Obsidian knowledge base using the LLM Wiki pattern.
+The LLM acts as librarian — reading raw sources, compiling them into a structured interlinked wiki, and maintaining it over time.
 
 ## Wizard Flow
 
-Guide the user through these 5 steps. Ask ONE question at a time. Each step has a sensible default — the user can accept it or provide their own value.
+Guide the user through these 5 steps.
+Ask ONE question at a time.
+Each step has a sensible default — the user can accept it or provide their own value.
 
 ### Step 1: Vault Name
 
 Ask:
-> "What would you like to name your knowledge base? This will be the folder name."
+> "What would you like to name your knowledge base?
+> This will be the folder name."
 > Default: `second-brain`
 
-Accept any user-provided name. This becomes the folder name and the title in the agent config.
+Accept any user-provided name.
+This becomes the folder name and the title in the agent config.
 
 ### Step 2: Vault Location
 
 Ask:
-> "Where should I create it? Give me a path, or I'll use the default."
+> "Where should I create it?
+> Give me a path, or I'll use the default."
 > Default: `~/Documents/`
 
-Accept any absolute or relative path. Resolve `~` to the user's home directory. The final vault path is `{location}/{vault-name}/`.
+Accept any absolute or relative path.
+Resolve `~` to the user's home directory.
+The final vault path is `{location}/{vault-name}/`.
 
 ### Step 3: Domain / Topic
 
 Ask:
-> "What's this knowledge base about? This helps me set up relevant tags and describe the vault's purpose."
->
+> "What's this knowledge base about?
+> This helps me set up relevant tags and describe the vault's purpose."
 > Examples: "AI research", "competitive intelligence on fintech startups", "personal health and fitness"
 
-Accept free text. Use this to:
+Accept free text.
+Use this to:
 - Write a one-line domain description for the agent config
 - Generate 5-8 suggested domain-specific tags
 
 ### Step 4: Agent Config
 
-Auto-detect which agent is running this skill. State it clearly:
+Auto-detect which agent is running this skill.
+State it clearly:
 > "I'm running in **[Agent Name]**, so I'll generate a **[config file]** for this vault."
 
 Then ask:
-> "Do you use any other AI agents you'd like config files for? Options: Claude Code, Codex, Cursor, Gemini CLI — or skip."
+> "Do you use any other AI agents you'd like config files for?
+> Options: Claude Code, Codex, Cursor, Gemini CLI — or skip."
 
-Skip the agent that was auto-detected. Generate configs for all selected agents.
+Skip the agent that was auto-detected.
+Generate configs for all selected agents.
 
 **Agent detection logic:**
 - If the `CLAUDE.md` convention is being used or the Skill tool is Claude Code's → Claude Code
@@ -63,7 +75,8 @@ Skip the agent that was auto-detected. Generate configs for all selected agents.
 ### Step 5: Optional CLI Tools
 
 Ask:
-> "These tools extend what the LLM can do with your vault. All optional but recommended:"
+> "These tools extend what the LLM can do with your vault.
+> All optional but recommended:"
 >
 > 1. **summarize** — summarize links, files, and media from the CLI
 > 2. **qmd** — local search engine for your wiki (helpful as it grows)
@@ -123,7 +136,8 @@ For each tool the user selected in Step 5, run the install command:
 - qmd: `npm i -g @tobilu/qmd`
 - agent-browser: `npm i -g agent-browser && agent-browser install`
 
-After each install, verify with `<tool> --version`. Report success or failure for each.
+After each install, verify with `<tool> --version`.
+Report success or failure for each.
 
 ### 5. Print summary
 
@@ -153,4 +167,4 @@ After setup is complete, the user's workflow is:
 1. **Clip articles** to `raw/` using the Obsidian Web Clipper
 2. **Ingest sources** with `/second-brain-ingest` — processes raw files into wiki pages
 3. **Ask questions** with `/second-brain-query` — searches and synthesizes from the wiki
-4. **Health-check** with `/second-brain-lint` — run after every 10 ingests or monthly
+4. **Health-check** with `/second-brain-lint` — quick-lint runs after each batch ingest; full lint monthly
