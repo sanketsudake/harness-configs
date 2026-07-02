@@ -34,7 +34,7 @@ harness-configs/
 │   ├── CLAUDE.md          # shared global user instructions (both profiles)
 │   ├── commands/          # slash commands
 │   ├── agents/            # subagents (+ .source.json sidecars)
-│   ├── rules/             # rule files (currently just a .gitkeep)
+│   ├── rules/             # rule files (model routing, git hygiene, delegation)
 │   ├── scripts/           # helper scripts (md formatter, statusline hook)
 │   └── plugins.txt        # desired-state plugin list
 ├── skills/                # shared skills for Claude + pi (source of truth)
@@ -64,89 +64,125 @@ The `Makefile` derives all paths from `$(CURDIR)`, so the repo can live anywhere
 
 ### Skills
 
-Shared by Claude Code and pi — 36 of them, grouped below.
+Shared by Claude Code and pi, grouped below by the `category` recorded in each skill's sidecar.
 Most are now authored in this repo (`local`); the rest are vendored from [pi-skills](https://github.com/badlogic/pi-skills) (`brave-search`, the Google CLIs, `transcribe`, `vscode`, `youtube-transcript`), the [cursor-team-kit](https://github.com/cursor/plugins) (`deslop`, `make-pr-easy-to-review`, `pr-review-canvas`, `thermo-nuclear-code-quality-review`), and the [skills.sh](https://www.skills.sh/) ecosystem (`find-skills`, `agent-browser`, `caveman`).
-Each carries a `.source.json` sidecar recording its source and a `category`; `make skills-list` prints them grouped by that category (the same domains as the tables below — Claude Code/pi only scan one level deep, so categorization is metadata, not nested folders).
+Each carries a `.source.json` sidecar recording its source and a `category`; `make skills-list` prints them grouped by that category (the same groups as the tables below — Claude Code/pi only scan one level deep, so categorization is metadata, not nested folders).
 To find more, `make skills-find Q=…` searches [skills.sh](https://www.skills.sh/) and `make skills-add SOURCE=owner/repo@skill CATEGORY=…` vendors the result into `skills/` (see [Makefile reference](#makefile-reference)).
 
 The owned skills lean heavily toward maintaining a Hugo site and an OSS Go project end-to-end — authoring, CI triage, dependency hygiene, security remediation, and backlog/PR review — each one atomic so it can run alone or chain with the others.
 
-**Hugo / static-site authoring & SEO**
+The tables below are **generated** from the sidecars + each `SKILL.md` description — don't edit them by hand; run `make skills-catalog` after adding, removing, or recategorizing a skill (`make skills-doctor` flags a stale block).
+
+<!-- BEGIN skills-catalog -->
+
+**ci-go (7)**
 
 | Skill | Purpose |
 |-------|---------|
-| `write-hugo-blog-post` | Author/edit a Hugo post: file layout, front matter, featured-image → card+OG flow. |
-| `author-mermaid-diagram` | Add a mermaid diagram that renders readably in a narrow content column. |
-| `generate-og-images` | Render branded 1200×630 social-share cards over an AI/image/gradient background. |
-| `optimize-svg` | Shrink an SVG asset with svgo, keeping the result only if it actually got smaller. |
-| `add-llms-txt` | Add `/llms.txt`, `/llms-full.txt`, and per-page markdown twins, generated from content. |
-| `audit-static-site` | Crawl built HTML and flag SEO/UX issues (titles, meta, alt text, thin/orphan pages). |
-| `report-site-analytics` | Pull a dated GA4 + Search Console report (top pages, queries, CTR, near-misses). |
-| `verify-hugo-build` | Build the site the way the host runs it before declaring it done. |
-| `bump-hugo-versions` | Bump Hugo/Go/theme versions pinned in a deploy config (netlify.toml / Actions). |
+| [`analyze-go-pprof`](skills/analyze-go-pprof/SKILL.md) | Pull the heap/goroutine pprof profiles a CI job captured, separate a real leak from baseline cost, and quantify a fix's before/after delta. |
+| [`analyze-prometheus-tsdb`](skills/analyze-prometheus-tsdb/SKILL.md) | Run a Prometheus TSDB snapshot that a CI job uploaded inside a local Prometheus container and query it — for before/after performance comparisons across legs... |
+| [`bump-ci-tool-versions`](skills/bump-ci-tool-versions/SKILL.md) | Bump the pinned CLI tool versions that GitHub Actions workflows download at runtime (helm, kind, skaffold, cosign, golangci-lint, goreleaser, etc.) — the `*_... |
+| [`debug-ci`](skills/debug-ci/SKILL.md) | Triage and root-cause a failing GitHub Actions CI run on a PR efficiently. |
+| [`go-deps-security-sweep`](skills/go-deps-security-sweep/SKILL.md) | Run a grouped, bisectable Go dependency security sweep. |
+| [`improve-codecov-coverage`](skills/improve-codecov-coverage/SKILL.md) | Use when raising test coverage on a Go project that reports to Codecov (triggers "improve code coverage", "cover package X", "find coverage gaps"). |
+| [`watch-ci`](skills/watch-ci/SKILL.md) | After pushing to a PR, watch its CI checks to terminal state and surface each transition as a notification instead of busy-polling. |
 
-**CI, Go & dependencies**
+**gh-security (4)**
 
 | Skill | Purpose |
 |-------|---------|
-| `debug-ci` | Triage and root-cause a failing GitHub Actions run, cheapest log fetch first. |
-| `watch-ci` | Watch a PR's checks to terminal state, surfacing each transition as a notification. |
-| `analyze-go-pprof` | Pull CI-captured heap/goroutine profiles; separate a real leak from baseline cost. |
-| `analyze-prometheus-tsdb` | Query a CI-uploaded Prometheus TSDB snapshot for over-the-run time series. |
-| `go-deps-security-sweep` | Grouped, bisectable Go dependency upgrade — one commit per logical group. |
-| `improve-codecov-coverage` | Rank low-covered Go packages, write targeted tests, verify the delta. |
-| `bump-ci-tool-versions` | Bump runtime-downloaded CLI versions (helm, kind, skaffold, cosign, …) in workflows. |
+| [`author-security-advisory`](skills/author-security-advisory/SKILL.md) | Use when triaging or preparing a GitHub repository security advisory as a maintainer (triggers "draft the advisory", "prepare GHSA content", "request CVE", "... |
+| [`remediate-codeql-alerts`](skills/remediate-codeql-alerts/SKILL.md) | Use when fixing or triaging GitHub code-scanning / CodeQL alerts (triggers "fix codeql issues", "check code-scanning alerts", "dismiss false-positive alert"). |
+| [`source-code-for-gh-advisory`](skills/source-code-for-gh-advisory/SKILL.md) | Use when the user wants to obtain, inspect, or reproduce the vulnerable source code referenced by a GitHub Security Advisory (GHSA-xxxx / CVE) — including se... |
+| [`triage-gh-backlog`](skills/triage-gh-backlog/SKILL.md) | Use when scrubbing or triaging a GitHub repo's open issue/PR backlog — e.g. "go through all open issues and PRs and see what can be closed", "scrub the outst... |
 
-**PR review & code quality**
+**google-cli (3)**
 
 | Skill | Purpose |
 |-------|---------|
-| `make-pr-easy-to-review` | Clean noisy history, improve PR descriptions, and annotate diffs without changing behavior. |
-| `pr-review-canvas` | Generate an interactive HTML PR-review walkthrough from `gh` API data. |
-| `resolve-bot-review-threads` | Fix bot/Copilot comments, resolve the threads, and re-request review. |
-| `thermo-nuclear-code-quality-review` | Extremely strict maintainability review (abstraction, giant files, spaghetti). |
-| `deslop` | Remove AI-generated code slop and clean up code style. |
+| [`gccli`](skills/gccli/SKILL.md) | Google Calendar CLI for listing calendars, viewing/creating/updating events, and checking availability. |
+| [`gdcli`](skills/gdcli/SKILL.md) | Google Drive CLI for listing, searching, uploading, downloading, and sharing files and folders. |
+| [`gmcli`](skills/gmcli/SKILL.md) | Gmail CLI for searching emails, reading threads, sending messages, managing drafts, and handling labels/attachments. |
 
-**GitHub security & maintenance**
+**internal-automation (5)**
 
 | Skill | Purpose |
 |-------|---------|
-| `triage-gh-backlog` | Scrub an open issue/PR backlog like a PM, backed by a local SQLite mirror. |
-| `author-security-advisory` | Triage/draft a repo security advisory and produce paste-ready GHSA content. |
-| `remediate-codeql-alerts` | Fix or dismiss code-scanning/CodeQL alerts and verify on the merge ref. |
-| `source-code-for-gh-advisory` | Obtain and reproduce the vulnerable source referenced by a GHSA/CVE. |
+| [`approve-workday-tasks`](skills/approve-workday-tasks/SKILL.md) | Use when the user wants to review and approve their pending Workday "My Tasks" approvals via the browser — invoked as /approve-workday-tasks. |
+| [`fill-workday-timesheet`](skills/fill-workday-timesheet/SKILL.md) | Use when the user wants to fill in their Workday timesheet for the current week (enter hours per weekday against a project), invoked as /fill-workday-timesheet. |
+| [`list-week-meetings`](skills/list-week-meetings/SKILL.md) | Use when the user wants a list of their meetings for a week from the Outlook (Microsoft 365) calendar — invoked as /list-week-meetings. |
+| [`login-microsoft-sso`](skills/login-microsoft-sso/SKILL.md) | Use to ensure an authenticated browser tab for an app behind your organization's Microsoft (Entra) SSO — e.g. Workday, Engage, Outlook — via the claude-in-ch... |
+| [`record-engage-activity`](skills/record-engage-activity/SKILL.md) | Use when the user wants to record an activity in Engage (the org's activity/points platform) — e.g. a billed work week or a phone interview — invoked as /rec... |
 
-**Search, media & desktop**
-
-| Skill | Purpose |
-|-------|---------|
-| `brave-search` | Web search and content extraction via the Brave Search API; no browser needed. |
-| `agent-browser` | Browser/Electron automation CLI for agents (CDP, accessibility-tree snapshots); needs `npm i -g agent-browser`. |
-| `youtube-transcript` | Fetch YouTube transcripts for summarization and analysis. |
-| `transcribe` | Local speech-to-text on Apple Silicon macOS. |
-| `vscode` | VS Code integration for viewing diffs and comparing files. |
-
-**Google Workspace CLIs**
+**knowledge-base (7)**
 
 | Skill | Purpose |
 |-------|---------|
-| `gccli` | Google Calendar CLI: list calendars, view/create/update events, check availability. |
-| `gdcli` | Google Drive CLI: list, search, upload, download, and share files and folders. |
-| `gmcli` | Gmail CLI: search, read threads, send, manage drafts, labels, and attachments. |
+| [`readwise-cli`](skills/readwise-cli/SKILL.md) | How to use the Readwise CLI — access highlights, documents, and your entire reading library from the command line |
+| [`readwise-second-brain-sync`](skills/readwise-second-brain-sync/SKILL.md) | Sync Readwise highlights and Reader documents into the second-brain vault's raw/ folder in Obsidian-Web-Clipper format. |
+| [`second-brain-ingest`](skills/second-brain-ingest/SKILL.md) | Process raw source documents into wiki pages. |
+| [`second-brain-lint`](skills/second-brain-lint/SKILL.md) | Health-check the wiki for contradictions, orphan pages, stale claims, and missing cross-references. |
+| [`second-brain-query`](skills/second-brain-query/SKILL.md) | Answer questions against the knowledge base wiki. |
+| [`second-brain-review`](skills/second-brain-review/SKILL.md) | Resurface knowledge from the second-brain wiki — a daily/periodic review of highlights, concepts, and stale pages, replacing Readwise's daily review. |
+| [`second-brain`](skills/second-brain/SKILL.md) | Set up a new Obsidian knowledge base with the LLM Wiki pattern. |
 
-**Meta**
+**meta (3)**
 
 | Skill | Purpose |
 |-------|---------|
-| `harvest-automation` | Mine past Claude Code sessions and turn recurring patterns into skills, CLAUDE.md entries, and memory. |
-| `find-skills` | Discover and install skills from the skills.sh ecosystem on request. |
-| `caveman` | Ultra-compressed "caveman" response mode that cuts token use while keeping technical accuracy. |
+| [`caveman`](skills/caveman/SKILL.md) | Ultra-compressed communication mode. |
+| [`find-skills`](skills/find-skills/SKILL.md) | Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express ... |
+| [`harvest-automation`](skills/harvest-automation/SKILL.md) | Use when the user wants to turn past Claude Code work into reusable automation — invoked as /harvest-automation, optionally with a window like "7d". |
+
+**pr-review (5)**
+
+| Skill | Purpose |
+|-------|---------|
+| [`deslop`](skills/deslop/SKILL.md) | Remove AI-generated code slop and clean up code style |
+| [`make-pr-easy-to-review`](skills/make-pr-easy-to-review/SKILL.md) | Prepare PRs for review by cleaning noisy history, improving PR descriptions, and adding reviewer guidance without changing code behavior. |
+| [`pr-review-canvas`](skills/pr-review-canvas/SKILL.md) | Generate an interactive PR review walkthrough as an HTML page. |
+| [`resolve-bot-review-threads`](skills/resolve-bot-review-threads/SKILL.md) | Use when a PR has bot/Copilot review comments to clear — fix them, mark the threads resolved, and re-request the bot until the PR is at a good base (triggers... |
+| [`thermo-nuclear-code-quality-review`](skills/thermo-nuclear-code-quality-review/SKILL.md) | Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. |
+
+**search-media (5)**
+
+| Skill | Purpose |
+|-------|---------|
+| [`agent-browser`](skills/agent-browser/SKILL.md) | Browser automation CLI for AI agents. |
+| [`brave-search`](skills/brave-search/SKILL.md) | Web search and content extraction via Brave Search API. |
+| [`transcribe`](skills/transcribe/SKILL.md) | Local speech-to-text transcription on Apple Silicon macOS. |
+| [`vscode`](skills/vscode/SKILL.md) | VS Code integration for viewing diffs and comparing files. |
+| [`youtube-transcript`](skills/youtube-transcript/SKILL.md) | Fetch transcripts from YouTube videos for summarization and analysis. |
+
+**static-site (9)**
+
+| Skill | Purpose |
+|-------|---------|
+| [`add-llms-txt`](skills/add-llms-txt/SKILL.md) | Use to add LLM-friendly outputs to a Hugo site — /llms.txt and /llms-full.txt indexes plus a per-page markdown twin at <url>/index.md — generated from conten... |
+| [`audit-static-site`](skills/audit-static-site/SKILL.md) | Use to crawl a built static-site output dir and flag SEO/UX issues (titles, meta descriptions, alt text, thin/orphan/duplicate pages) before publishing. |
+| [`author-mermaid-diagram`](skills/author-mermaid-diagram/SKILL.md) | Use when adding or fixing a mermaid diagram in a Hugo (or other static-site) page so it renders readably inline in a narrow content column (triggers "add a d... |
+| [`bump-hugo-versions`](skills/bump-hugo-versions/SKILL.md) | Use when bumping Hugo, Go, or a theme loaded as a Hugo Module via go.mod, with versions pinned in a deploy config (netlify.toml or a GitHub Actions workflow). |
+| [`generate-og-images`](skills/generate-og-images/SKILL.md) | Use to generate branded 1200x630 social-share (OG/Twitter) card images for a site's pages, with title/tags/brand overlaid by Pillow over an AI, image, or gra... |
+| [`optimize-svg`](skills/optimize-svg/SKILL.md) | Use when adding or committing an SVG asset (logos, icons) to keep it small — triggers "add this logo", "optimize svg", "svg is too big". |
+| [`report-site-analytics`](skills/report-site-analytics/SKILL.md) | Use to pull a GA4 + Google Search Console report (top pages, queries, CTR, near-miss positions) into a dated markdown/JSON summary for an SEO/reachability pass. |
+| [`verify-hugo-build`](skills/verify-hugo-build/SKILL.md) | Use when verifying a Hugo site build before declaring it done or pushing (triggers "does it build", "verify the site", after editing layouts/SCSS/content). |
+| [`write-hugo-blog-post`](skills/write-hugo-blog-post/SKILL.md) | Use when authoring or editing a blog post in a Hugo site (any theme) — triggers "write a blog post", "publish a tutorial", "add a post". |
+
+<!-- END skills-catalog -->
 
 ### Claude commands, agents, rules, scripts
 
 - **Command** `/history` — read the global conversation history and present it in a scannable format.
-- **Agent** `thermo-nuclear-code-quality-review` — strict maintainability audit (1k-line rule, spaghetti, code-judo), driven by the matching skill; vendored from the cursor-team-kit with a `.source.json` sidecar.
-- **Rules** — `claude/rules/` is wired up for rule files (currently just a `.gitkeep`).
+- **Agents** (each with a `.source.json` sidecar, listed by `make agents-list`):
+  - `plan-reviewer` — read-only pre-execution review of an implementation plan against the actual codebase; returns APPROVE/REVISE with evidence-cited issues.
+  - `bulk-mechanic` — haiku-powered executor for mechanical, judgment-free batches (renames, bumps, pattern application); the parent supplies the exact transform and file list.
+  - `pr-shepherd` — drives the push → CI → bot-review loop to green via the `watch-ci` / `debug-ci` / `resolve-bot-review-threads` skills; never opens or merges PRs itself.
+  - `skill-auditor` — read-only audit of a skill directory against the repo's conventions (atomic scope, trigger-rich description, sidecar + category, no PII).
+  - `thermo-nuclear-code-quality-review` — strict maintainability audit (1k-line rule, spaghetti, code-judo), driven by the matching skill; vendored from the cursor-team-kit.
+- **Rules** (`claude/rules/`, loaded in every session in both profiles):
+  - `model-routing.md` — route tasks to the cheapest reliable model tier (haiku mechanical / sonnet routine / session model for judgment) and calibrate effort.
+  - `git-hygiene.md` — staging, commit, and push discipline.
+  - `delegation.md` — when to hand work to the subagents above instead of doing it inline.
 - **Scripts** — `md-one-sentence-per-line.py` (the markdown formatter the shared `CLAUDE.md` points at) and `statusline-command.sh` (a `statusLine` hook script: `[model] folder | branch · context bar · $cost · elapsed`).
 
 ### Shared `CLAUDE.md`
@@ -154,6 +190,7 @@ The owned skills lean heavily toward maintaining a Hugo site and an OSS Go proje
 Profile-agnostic global instructions applied to both Claude accounts:
 
 - Never publish secrets; never commit `.env`.
+- A pointer to the `claude/rules/` files above, so every session knows they exist.
 - Markdown one-sentence-per-line, with a reusable formatter at `claude/scripts/md-one-sentence-per-line.py`.
 
 ### pi extensions
@@ -222,6 +259,8 @@ All targets follow `<resource>-<action>`; `install` / `uninstall` are the aggreg
 | `agents-fetch REPO=… SUBPATH=…` | Same, for a single agent `.md` file. |
 | `skills-list` / `agents-list` | Every resource with status (`remote`/`local`/`unmanaged`) and source, **grouped by category**. |
 | `skills-category NAME=… CATEGORY=…` | Set/replace a resource's category (survives `skills-update`). |
+| `skills-catalog [CHECK=1]` | Regenerate the category-grouped skill tables in this README (or just verify with `CHECK=1`). |
+| `skills-doctor` / `agents-doctor` | Validate every resource (frontmatter, sidecar, category) and, for skills, that the README catalog is current. |
 | `skills-update NAME=…` / `-update-all` | Re-resolve the recorded ref and re-copy if upstream moved (category preserved). |
 | `skills-delete NAME=…` | Remove a resource and its sidecar. |
 | `plugins-check` | Diff `plugins.txt` against each profile's installed plugins. |

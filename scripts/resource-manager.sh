@@ -20,6 +20,8 @@
 #   resource-manager.sh --kind {skill|agent} update (--name NAME | --all)
 #   resource-manager.sh --kind {skill|agent} delete --name NAME [--yes]
 #   resource-manager.sh --kind {skill|agent} category --name NAME --category CAT
+#   resource-manager.sh --kind skill catalog [--check]
+#   resource-manager.sh --kind {skill|agent} doctor
 #
 set -euo pipefail
 
@@ -364,6 +366,159 @@ cmd_delete() {
   info "deleted $(rel "$artifact")"
 }
 
+# Read a scalar frontmatter field from a markdown file, joining folded (`>`)
+# and indented continuation lines into one space-separated value.
+frontmatter_field() {
+  local file="$1" field="$2"
+  awk -v f="$field" '
+    NR == 1 { if ($0 == "---") { infm = 1; next } else { exit } }
+    infm && $0 == "---" { exit }
+    !infm { next }
+    capturing {
+      if ($0 ~ /^[[:space:]]+[^[:space:]]/) { sub(/^[[:space:]]+/, ""); val = val (val == "" ? "" : " ") $0; next }
+      exit
+    }
+    $0 ~ "^" f ":" {
+      v = $0; sub("^" f ":[[:space:]]*", "", v)
+      if (v !~ /^[>|][+-]?$/) val = v
+      capturing = 1
+    }
+    END { print val }
+  ' "$file"
+}
+
+# One-line "purpose" for a catalog row: the description collapsed to a single
+# sentence, pipes escaped for markdown tables, truncated if still long.
+purpose_from_description() {
+  local desc="$1" purpose
+  purpose="$(printf '%s' "$desc" | tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//')"
+  purpose="${purpose#\"}"; purpose="${purpose%\"}"
+  # Shield common abbreviations so the first-sentence split below doesn't
+  # break on them, then restore the spaces afterwards.
+  local sep=$'\x01' abbr
+  for abbr in e.g. i.e. etc. vs.; do
+    purpose="${purpose//"$abbr" /$abbr$sep}"
+  done
+  case "$purpose" in
+    *". "*) purpose="${purpose%%. *}." ;;
+  esac
+  purpose="${purpose//$sep/ }"
+  purpose="${purpose//|/\\|}"
+  if (( ${#purpose} > 160 )); then
+    purpose="${purpose:0:157}..."
+  fi
+  printf '%s' "$purpose"
+}
+
+# Render the markdown skills catalog (category-grouped tables) to stdout.
+render_catalog() {
+  [[ "$KIND" == "skill" ]] || die "catalog: only supported for --kind skill"
+  local data="" name sidecar category desc purpose
+  while IFS=$'\t' read -r name sidecar; do
+    [[ -n "$name" ]] || continue
+    [[ -f "$RESOURCE_ROOT/$name/SKILL.md" ]] || continue
+    category=uncategorized
+    [[ -f "$sidecar" ]] && category="$(jq -r '.category // "uncategorized"' "$sidecar")"
+    desc="$(frontmatter_field "$RESOURCE_ROOT/$name/SKILL.md" description)"
+    purpose="$(purpose_from_description "$desc")"
+    [[ -n "$purpose" ]] || purpose="(no description)"
+    data+="$category"$'\t'"$name"$'\t'"$purpose"$'\n'
+  done < <(iter_resources)
+  [[ -n "$data" ]] || { info "no skills found"; return 0; }
+
+  # Categories alphabetically, uncategorized last.
+  local cats cat first=1
+  cats="$(printf '%s' "$data" | cut -f1 | sort -u | grep -vx uncategorized || true)"
+  if printf '%s' "$data" | cut -f1 | grep -qx uncategorized; then
+    cats="$cats"$'\n'uncategorized
+  fi
+  while IFS= read -r cat; do
+    [[ -n "$cat" ]] || continue
+    [[ "$first" -eq 1 ]] || printf '\n'
+    first=0
+    printf '**%s (%s)**\n\n' "$cat" \
+      "$(printf '%s' "$data" | awk -F'\t' -v c="$cat" '$1==c' | grep -c .)"
+    printf '| Skill | Purpose |\n|-------|---------|\n'
+    printf '%s' "$data" | awk -F'\t' -v c="$cat" \
+      '$1==c {printf "| [`%s`](skills/%s/SKILL.md) | %s |\n", $2, $2, $3}'
+  done <<<"$cats"
+}
+
+CATALOG_BEGIN='<!-- BEGIN skills-catalog -->'
+CATALOG_END='<!-- END skills-catalog -->'
+
+# Regenerate the catalog block in README.md (between the BEGIN/END markers).
+# With --check, don't write: exit 1 if the block is stale.
+cmd_catalog() {
+  local check=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --check) check=1; shift ;;
+      *) die "catalog: unknown argument '$1'" ;;
+    esac
+  done
+  local readme="$REPO_ROOT/README.md"
+  grep -qF "$CATALOG_BEGIN" "$readme" && grep -qF "$CATALOG_END" "$readme" \
+    || die "README.md is missing the $CATALOG_BEGIN / $CATALOG_END markers"
+
+  local tmp; mktmp; tmp="$MKTMP_DIR"
+  render_catalog > "$tmp/catalog.md"
+  awk -v begin="$CATALOG_BEGIN" -v end="$CATALOG_END" -v body="$tmp/catalog.md" '
+    index($0, begin) { print; print ""; while ((getline line < body) > 0) print line; print ""; skip = 1; next }
+    index($0, end)   { skip = 0 }
+    !skip
+  ' "$readme" > "$tmp/README.md"
+
+  if [[ "$check" -eq 1 ]]; then
+    diff -q "$readme" "$tmp/README.md" >/dev/null \
+      || { err "README.md skills catalog is stale (run: make skills-catalog)"; return 1; }
+    info "catalog: up to date"
+    return 0
+  fi
+  if diff -q "$readme" "$tmp/README.md" >/dev/null; then
+    info "catalog: up to date"
+  else
+    cp "$tmp/README.md" "$readme"
+    info "catalog: README.md regenerated"
+  fi
+}
+
+# Validate every resource of this kind; exit 1 if any problem is found.
+# Skills additionally verify the README catalog block is current.
+cmd_doctor() {
+  local issues=0 name sidecar md desc
+  flag() { printf '%s\n' "$*"; issues=$((issues + 1)); }
+  while IFS=$'\t' read -r name sidecar; do
+    [[ -n "$name" ]] || continue
+    case "$KIND" in
+      skill) md="$RESOURCE_ROOT/$name/SKILL.md" ;;
+      agent) md="$RESOURCE_ROOT/$name.md" ;;
+    esac
+    if [[ ! -f "$md" ]]; then
+      flag "$name: missing $(rel "$md")"
+      continue
+    fi
+    [[ -n "$(frontmatter_field "$md" name)" ]] \
+      || flag "$name: SKILL/agent frontmatter has no 'name'"
+    desc="$(frontmatter_field "$md" description)"
+    [[ -n "$desc" ]] || flag "$name: frontmatter has no 'description'"
+    if [[ ! -f "$sidecar" ]]; then
+      flag "$name: unmanaged (no .source.json sidecar)"
+    elif [[ "$(jq -r '.category // ""' "$sidecar")" == "" ]]; then
+      flag "$name: sidecar has no 'category'"
+    fi
+  done < <(iter_resources)
+
+  if [[ "$KIND" == "skill" ]]; then
+    cmd_catalog --check || issues=$((issues + 1))
+  fi
+  if [[ "$issues" -gt 0 ]]; then
+    err "doctor: $issues issue(s) found"
+    return 1
+  fi
+  info "doctor: all ${KIND}s healthy"
+}
+
 # Set/replace the category on an existing resource's sidecar (in place, so it
 # survives update). Creates a minimal local sidecar if none exists yet.
 cmd_category() {
@@ -405,5 +560,7 @@ case "$cmd" in
   update)   cmd_update   "$@" ;;
   delete)   cmd_delete   "$@" ;;
   category) cmd_category "$@" ;;
-  *) die "unknown command '$cmd' (expected fetch|list|update|delete|category)" ;;
+  catalog)  cmd_catalog  "$@" ;;
+  doctor)   cmd_doctor   "$@" ;;
+  *) die "unknown command '$cmd' (expected fetch|list|update|delete|category|catalog|doctor)" ;;
 esac

@@ -46,7 +46,9 @@ SHELL := /bin/bash
 	skills-sync extensions-sync plugins-check plugins-sync \
 	skills-find skills-add \
 	skills-fetch skills-list skills-update skills-update-all skills-category skills-delete \
-	agents-fetch agents-list agents-update agents-update-all agents-category agents-delete
+	skills-catalog skills-doctor \
+	agents-fetch agents-list agents-update agents-update-all agents-category agents-delete \
+	agents-doctor
 
 install: skills-link claude-md-link commands-link rules-link scripts-link agents-link
 	mkdir -p $(PI_TARGET)
@@ -323,6 +325,17 @@ skills-category:
 skills-delete:
 	@$(RESOURCE_MANAGER) --kind skill delete --name "$(NAME)" $(if $(YES),--yes)
 
+# Regenerate the category-grouped skills tables in README.md (between the
+# skills-catalog markers) from each skill's sidecar category + SKILL.md
+# description. CHECK=1 only verifies (exit 1 if stale) without writing.
+skills-catalog:
+	@$(RESOURCE_MANAGER) --kind skill catalog $(if $(CHECK),--check)
+
+# Validate every skill (SKILL.md present, name/description frontmatter,
+# sidecar + category) and that the README catalog is current.
+skills-doctor:
+	@$(RESOURCE_MANAGER) --kind skill doctor
+
 agents-fetch:
 	@$(RESOURCE_MANAGER) --kind agent fetch \
 		$(if $(URL),--url "$(URL)") \
@@ -348,3 +361,6 @@ agents-category:
 
 agents-delete:
 	@$(RESOURCE_MANAGER) --kind agent delete --name "$(NAME)" $(if $(YES),--yes)
+
+agents-doctor:
+	@$(RESOURCE_MANAGER) --kind agent doctor

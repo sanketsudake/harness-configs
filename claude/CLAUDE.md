@@ -10,6 +10,14 @@ These rules are ABSOLUTE:
 - NEVER commit `.env` to git
 - ALWAYS verify `.env` is in `.gitignore`
 
+## Rules
+
+Longer-form conventions live in `$CLAUDE_CONFIG_DIR/rules/` and apply in every session:
+
+- `model-routing.md` — which model/effort tier a task deserves (haiku mechanical, sonnet routine, session model for judgment) and how to set them on subagent/Workflow calls.
+- `git-hygiene.md` — staging, commit, and push discipline (never `git add -A`; user opens PRs unless the project says otherwise).
+- `delegation.md` — when to hand work to the `plan-reviewer`, `bulk-mechanic`, `pr-shepherd`, `skill-auditor`, or Explore subagents instead of doing it inline.
+
 ## Markdown Style
 
 ### One sentence per line
