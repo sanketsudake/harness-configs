@@ -1,6 +1,6 @@
 ---
 name: record-engage-activity
-description: Use when the user wants to record an activity in Engage (the org's activity/points platform) — e.g. a billed work week or a phone interview — invoked as /record-engage-activity. Fills the Add Activity form (category, type, date, quantity, notes) and submits only after the user confirms. Runs in the user's real Chrome via claude-in-chrome (logs in through the login-microsoft-sso skill).
+description: Use when the user wants to record an activity in Engage (the org's activity/points platform) — e.g. a billed work week, a phone interview, or an attended course/class (ImprovingU, Udemy) — invoked as /record-engage-activity. Fills the Add Activity form (category, type, date, quantity, notes) and submits only after the user confirms; can derive a class's date and hours from the user's Outlook calendar. Runs in the user's real Chrome via claude-in-chrome (logs in through the login-microsoft-sso skill).
 disable-model-invocation: true
 ---
 
@@ -25,9 +25,18 @@ Read from `~/.config/harness-configs/record-engage-activity/config` (user/tenant
 - `ENGAGE_PRESET_*` — named presets, each `"<Category> > <Type>"`, e.g.:
   - `ENGAGE_PRESET_BILLED_WEEK="Direct Revenue > 40 Billable Hour Week"`
   - `ENGAGE_PRESET_PHONE_INTERVIEW="Recruiting > Interview - Phone"`
+  - `ENGAGE_PRESET_COURSE_ATTENDED="Education/Coaching > ImprovingU Attendance"`
 
 Presets are conveniences; the user can also pick any category/type from the live dropdowns.
 A `billed-week` activity corresponds to a fully-filled Workday timesheet week (40+ billable hours) — it pairs naturally with the `fill-workday-timesheet` skill: a week filled there is reportable here.
+
+### Education/Coaching (course attendance)
+
+- The category's types include `ImprovingU Attendance` (per the form's guidance, Udemy courses also count under it), plus course-prep/facilitation/instructor variants — `read_page` the type select for the live list.
+- **Quantity** is in *class hours*: record each **full** hour spent in a session (a 1.5 h class → 1).
+- **Notes** must name the class (e.g. `<course name> - <session name with instructor>`).
+- **Date** is the day attended.
+  If the user doesn't state it, find the class event in their Outlook calendar (via `login-microsoft-sso` with app `outlook`; the week view's event button exposes `<title>, <start> to <end>, <weekday, date>` — `find` it) and take the date and duration from the event.
 
 ## Phase 1 — Authenticate
 
@@ -54,8 +63,11 @@ Determine, asking the user where not implied:
 2. `wait` briefly — the **Activity Type** select populates from the chosen category — then `form_input` it with the type label (e.g. `40 Billable Hour Week`).
    Re-`read_page` the type options first if unsure of exact wording.
 3. Set **Date** (`form_input`, format `MM/DD/YYYY`) only if different from the default; **Quantity** (`form_input`, default 1); **Notes** (`form_input`).
-   - Caveat: setting the date via `form_input` shifts it back one day (the bs-datepicker stores midnight UTC → previous day in a behind-UTC timezone).
-     For a weekly activity the exact in-week day is immaterial, so this is usually fine; to land on an exact day, use the date-picker UI (click the field, then the day) or compensate by +1 day.
+   - Caveat — the one-day shift applies to **both** input methods (`form_input` *and* the date-picker UI): the widget stores local midnight, the server converts to UTC, so in a behind-UTC timezone the stored date is the **previous day**.
+     To land on an exact day, **set the field to target date + 1** (e.g. pick `07/02` to record `07/01`) and verify the submitted row's Date column afterwards.
+     For a weekly activity the exact in-week day is immaterial, so no compensation is needed.
+   - The shift can also trip validation: the server checks the (UTC) date against the selected **Reporting Period**, so an uncompensated date at a quarter boundary fails with *"Activity Date is not within the Reporting Period"* — fix by compensating +1 as above, not by switching the period.
+   - The date-picker sometimes ignores the first click on a day (it only highlights); re-check the field value and click the day again if unchanged.
 
 ## Phase 5 — Review and submit
 
