@@ -1,6 +1,6 @@
 ---
 name: record-engage-activity
-description: Use when the user wants to record an activity in Engage (the org's activity/points platform) — e.g. a billed work week, a phone interview, or an attended course/class (ImprovingU, Udemy) — invoked as /record-engage-activity. Fills the Add Activity form (category, type, date, quantity, notes) and submits only after the user confirms; can derive a class's date and hours from the user's Outlook calendar. Runs in the user's real Chrome via claude-in-chrome (logs in through the login-microsoft-sso skill).
+description: Use when the user wants to record an activity in Engage (the org's activity/points platform) — e.g. a billed work week, a phone interview, or an attended course/class (e.g. ImprovingU) — invoked as /record-engage-activity. Fills the Add Activity form (category, type, date, quantity, notes) and submits only after the user confirms; can derive a class's date and hours from the user's Outlook calendar. Runs in the user's real Chrome via claude-in-chrome (logs in through the login-microsoft-sso skill).
 disable-model-invocation: true
 ---
 
@@ -32,7 +32,7 @@ A `billed-week` activity corresponds to a fully-filled Workday timesheet week (4
 
 ### Education/Coaching (course attendance)
 
-- The category's types include `ImprovingU Attendance` (per the form's guidance, Udemy courses also count under it), plus course-prep/facilitation/instructor variants — `read_page` the type select for the live list.
+- The category's types include `ImprovingU Attendance`, plus course-prep/facilitation/instructor variants — `read_page` the type select for the live list (the form shows each selected type's own description/guidance).
 - **Quantity** is in *class hours*: record each **full** hour spent in a session (a 1.5 h class → 1).
 - **Notes** must name the class (e.g. `<course name> - <session name with instructor>`).
 - **Date** is the day attended.
