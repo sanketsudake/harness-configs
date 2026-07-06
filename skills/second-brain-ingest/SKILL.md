@@ -4,7 +4,10 @@ description: >
   Process raw source documents into wiki pages. Use when the user adds
   files to raw/ and wants them ingested, says "process this source",
   "ingest this article", "batch ingest", "deepen", "I added something
-  to raw/", or wants to incorporate new material into their knowledge base.
+  to raw/", "I clipped some articles", or wants to incorporate new
+  material into their knowledge base. Sweeps the vault's Clippings/
+  folder (Obsidian Web Clipper) into raw/ first, enriching metadata
+  on the way.
 allowed-tools: Bash Read Write Edit Glob Grep
 ---
 
@@ -12,6 +15,26 @@ allowed-tools: Bash Read Write Edit Glob Grep
 
 Process raw source documents into structured, interlinked wiki pages.
 Two tiers exist: **light** (fast, batch-safe source page) and **deep** (full entity/concept extraction).
+
+## Collect & Enrich Clippings (runs first)
+
+If the vault root has a `Clippings/` folder (the Obsidian Web Clipper's default save target), sweep it before identifying sources — the user should never have to move clips into `raw/` by hand.
+
+For each `Clippings/*.md`:
+
+1. **Repair metadata in place.**
+   A clip is not yet in `raw/`, so this is the one legal moment to edit it; the body stays verbatim.
+   - Fill an empty `author:` or `published:` only when the value is honestly derivable from the body or the source URL (an org name is fine for org-authored docs); otherwise leave it empty — never invent.
+   - Replace a truncated `description` (ends mid-word or with `...`) with a complete 1–2 sentence summary of the body.
+2. **Tag for deep ingest.**
+   Add `deep-ingest` to the frontmatter `tags:` — clipped articles are deliberate saves, so they default to the deep tier (the tier table below picks the tag up).
+   Bulk pipelines that bypass `Clippings/` (e.g. Readwise sync) keep the light default.
+3. **Move to `raw/`.**
+   `mv -n "Clippings/<name>.md" raw/`; on a name collision, append ` (clipped YYYY-MM-DD)` before `.md` instead of overwriting.
+
+Swept files then flow through normal detection and ingest below.
+No `Clippings/` folder, or an empty one, means nothing to do — never create it.
+Author sanitation (below) still applies at ingest time regardless of what repair wrote.
 
 ## Identify Sources to Process
 
