@@ -71,8 +71,19 @@ Targets (each `skills-*` has an `agents-*` twin taking the same variables):
   Run it after adding, removing, or recategorizing a skill; `CHECK=1` only verifies (exit 1 if stale).
 - `make skills-doctor` / `make agents-doctor` — validate every resource: markdown present, non-empty frontmatter `name`/`description`, sidecar present with a `category`; for skills, also that `skills/README.md` is current.
   Exit 1 on any issue.
+- `make suites-catalog [CHECK=1]` — regenerate (or verify) the generated blocks in `suites/*/README.md` and the Suites index in `README.md` (see "Skill suites").
 
 Note: the make variable is `SUBPATH`, not `PATH` — `PATH=` on a make command line would clobber the shell `PATH` inside recipes and break `git`/`jq`.
+
+## Skill suites
+
+A **suite** is a curated, ordered set of skills with a shareable landing page — pure metadata + docs, the flat `skills/` tree is untouched.
+
+- `suites/<name>/suite.json` — `{"title", "tagline"?, "skills": [ordered skill names]}`; membership lives here, never in sidecars.
+- `suites/<name>/README.md` — hand-written narrative; the region between `<!-- suite-skills:begin/end -->` markers (skill table + skills.sh install command) is generated.
+- The main `README.md`'s `<!-- suites:begin/end -->` region (the Suites index) is generated too; `skills/README.md` remains owned by `skills-catalog` alone.
+- `make suites-catalog [CHECK=1]` regenerates (or verifies) all generated regions; `make skills-doctor` includes the check.
+- To add a suite: create the dir with `suite.json` + a README containing the markers, then run `make suites-catalog`.
 
 ## skills.sh discovery + fetch (the `skills` CLI)
 

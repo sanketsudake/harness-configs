@@ -21,6 +21,7 @@
 #   resource-manager.sh --kind {skill|agent} delete --name NAME [--yes]
 #   resource-manager.sh --kind {skill|agent} category --name NAME --category CAT
 #   resource-manager.sh --kind skill catalog [--check]
+#   resource-manager.sh --kind skill suites [--check]
 #   resource-manager.sh --kind {skill|agent} doctor
 #
 set -euo pipefail
@@ -478,6 +479,148 @@ cmd_catalog() {
   fi
 }
 
+# --- suites ------------------------------------------------------------------
+# A "suite" is a curated, ordered set of skills with a landing page:
+#   suites/<name>/suite.json  {"title", "tagline"?, "skills": [ordered names]}
+#   suites/<name>/README.md   hand-written, with one machine-owned region
+# `suites` regenerates each README's marked region (skill table + install
+# command) and the Suites index in the top-level README.md.
+
+SUITES_ROOT="$REPO_ROOT/suites"
+SUITE_INSTALL_REPO="sanketsudake/harness-configs"
+SUITE_BEGIN='<!-- suite-skills:begin -->'
+SUITE_END='<!-- suite-skills:end -->'
+SUITES_INDEX_BEGIN='<!-- suites:begin -->'
+SUITES_INDEX_END='<!-- suites:end -->'
+
+# Validate a suite.json: title present, skills a non-empty array, every
+# member a real skill. Reports via err and returns 1 (no die: doctor must
+# be able to accumulate suite problems and still print its summary).
+validate_suite_manifest() {
+  local manifest="$1" skill bad=0
+  jq -e 'has("title") and (.skills | type == "array" and length > 0)' \
+    "$manifest" >/dev/null 2>&1 \
+    || { err "$(rel "$manifest"): must have a title and a non-empty skills array"; return 1; }
+  while IFS= read -r skill; do
+    [[ -f "$RESOURCE_ROOT/$skill/SKILL.md" ]] \
+      || { err "$(rel "$manifest"): skill '$skill' not found under skills/"; bad=1; }
+  done < <(jq -r '.skills[]' "$manifest")
+  return "$bad"
+}
+
+# Render one suite's generated region (skill table + install command) to
+# stdout, in manifest order.
+render_suite_block() {
+  local manifest="$1" skill desc purpose
+  printf '## Skills in this suite\n\n'
+  printf '| Skill | Purpose |\n|-------|---------|\n'
+  while IFS= read -r skill; do
+    desc="$(frontmatter_field "$RESOURCE_ROOT/$skill/SKILL.md" description)"
+    purpose="$(purpose_from_description "$desc")"
+    [[ -n "$purpose" ]] || purpose="(no description)"
+    printf '| [`%s`](../../skills/%s/SKILL.md) | %s |\n' "$skill" "$skill" "$purpose"
+  done < <(jq -r '.skills[]' "$manifest")
+  printf '\n## Install\n\n'
+  printf 'With the [skills.sh](https://www.skills.sh/) CLI (needs Node.js):\n\n'
+  printf '```bash\nnpx skills add %s \\\n' "$SUITE_INSTALL_REPO"
+  while IFS= read -r skill; do
+    printf '  --skill %s \\\n' "$skill"
+  done < <(jq -r '.skills[]' "$manifest")
+  printf -- '  -y\n```\n'
+}
+
+# Render the Suites index (for the top-level README) to stdout.
+render_suites_index() {
+  local manifest dir title tagline
+  printf '**Suites** — curated skill sets with their own landing pages:\n\n'
+  for manifest in "$SUITES_ROOT"/*/suite.json; do
+    [[ -f "$manifest" ]] || continue
+    dir="$(basename "$(dirname "$manifest")")"
+    title="$(jq -r '.title' "$manifest")"
+    tagline="$(jq -r '.tagline // ""' "$manifest")"
+    printf -- '- **[%s](suites/%s/)**%s\n' "$title" "$dir" "${tagline:+ — $tagline}"
+  done
+}
+
+# Splice <block_file> between the <begin>/<end> marker lines of <file>,
+# printing the result to stdout. Markers themselves are kept.
+splice_marked_region() {
+  local file="$1" begin="$2" end="$3" block_file="$4"
+  awk -v b="$begin" -v e="$end" -v bf="$block_file" '
+    $0 == b { print; while ((getline l < bf) > 0) print l; close(bf); skip = 1; next }
+    $0 == e { skip = 0 }
+    !skip { print }
+  ' "$file"
+}
+
+# Regenerate one file's marked region from <block_file>.
+# check=1: don't write; return 1 if stale, missing, or duplicated markers
+# (err, not die — callers accumulate).
+regen_marked_region() {
+  local file="$1" begin="$2" end="$3" block_file="$4" check="$5"
+  if [[ "$(grep -cxF "$begin" "$file")" -ne 1 || "$(grep -cxF "$end" "$file")" -ne 1 ]]; then
+    err "$(rel "$file"): needs exactly one '$begin' and one '$end' marker line"
+    return 1
+  fi
+  local tmp; mktmp; tmp="$MKTMP_DIR"
+  splice_marked_region "$file" "$begin" "$end" "$block_file" > "$tmp/out"
+  if diff -q "$file" "$tmp/out" >/dev/null; then
+    return 0
+  fi
+  if [[ "$check" -eq 1 ]]; then
+    err "$(rel "$file") is stale (run: make suites-catalog)"
+    return 1
+  fi
+  cp "$tmp/out" "$file"
+  info "suites: $(rel "$file") regenerated"
+}
+
+# Regenerate every suite README's marked region and the top-level README's
+# Suites index. With --check, verify only (exit 1 if anything is stale).
+cmd_suites() {
+  [[ "$KIND" == "skill" ]] || die "suites: only supported for --kind skill"
+  local check=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --check) check=1; shift ;;
+      *) die "suites: unknown argument '$1'" ;;
+    esac
+  done
+
+  local manifests=("$SUITES_ROOT"/*/suite.json)
+  [[ -f "${manifests[0]:-}" ]] || { info "suites: none found"; return 0; }
+
+  local manifest readme stale=0 tmp
+  for manifest in "${manifests[@]}"; do
+    validate_suite_manifest "$manifest" || { stale=$((stale + 1)); continue; }
+    readme="$(dirname "$manifest")/README.md"
+    [[ -f "$readme" ]] || { err "$(rel "$readme") does not exist"; stale=$((stale + 1)); continue; }
+    mktmp; tmp="$MKTMP_DIR"
+    render_suite_block "$manifest" > "$tmp/block"
+    regen_marked_region "$readme" "$SUITE_BEGIN" "$SUITE_END" "$tmp/block" "$check" \
+      || stale=$((stale + 1))
+  done
+
+  # Suites index in the top-level README. Optional until the markers exist
+  # (they are added by a separate change); absence is a note, not an error.
+  local root_readme="$REPO_ROOT/README.md"
+  if grep -qxF "$SUITES_INDEX_BEGIN" "$root_readme"; then
+    mktmp; tmp="$MKTMP_DIR"
+    render_suites_index > "$tmp/index"
+    regen_marked_region "$root_readme" "$SUITES_INDEX_BEGIN" "$SUITES_INDEX_END" "$tmp/index" "$check" \
+      || stale=$((stale + 1))
+  else
+    info "suites: README.md has no suites index markers, skipping index"
+  fi
+
+  if [[ "$stale" -gt 0 ]]; then
+    err "suites: $stale problem(s) found"
+    return 1
+  fi
+  [[ "$check" -eq 1 ]] && info "suites: up to date"
+  return 0
+}
+
 # Validate every resource of this kind; exit 1 if any problem is found.
 # Skills additionally verify the README catalog block is current.
 cmd_doctor() {
@@ -506,6 +649,7 @@ cmd_doctor() {
 
   if [[ "$KIND" == "skill" ]]; then
     cmd_catalog --check || issues=$((issues + 1))
+    cmd_suites --check || issues=$((issues + 1))
   fi
   if [[ "$issues" -gt 0 ]]; then
     err "doctor: $issues issue(s) found"
@@ -556,6 +700,7 @@ case "$cmd" in
   delete)   cmd_delete   "$@" ;;
   category) cmd_category "$@" ;;
   catalog)  cmd_catalog  "$@" ;;
+  suites)   cmd_suites   "$@" ;;
   doctor)   cmd_doctor   "$@" ;;
-  *) die "unknown command '$cmd' (expected fetch|list|update|delete|category|catalog|doctor)" ;;
+  *) die "unknown command '$cmd' (expected fetch|list|update|delete|category|catalog|suites|doctor)" ;;
 esac

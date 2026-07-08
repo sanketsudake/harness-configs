@@ -1,0 +1,13 @@
+{
+  "title": "Second Brain",
+  "tagline": "An Obsidian knowledge base your agent maintains for you",
+  "skills": [
+    "second-brain",
+    "readwise-second-brain-sync",
+    "second-brain-ingest",
+    "second-brain-query",
+    "second-brain-review",
+    "second-brain-ideate",
+    "second-brain-lint"
+  ]
+}
