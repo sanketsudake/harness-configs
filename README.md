@@ -50,6 +50,10 @@ To add more: `make skills-find Q=…` to discover, `make skills-add SOURCE=owner
 <!-- suites:begin -->
 **Suites** — curated skill sets with their own landing pages:
 
+- **[Go CI Health](suites/go-ci-health/)** — Keep a Go repo’s CI green, fast, and secure
+- **[Agent-Maintained Hugo Site](suites/hugo-site/)** — Write, illustrate, verify, optimize, and measure a Hugo blog with an agent
+- **[OSS Maintainer Copilot](suites/oss-maintainer/)** — Backlog triage, CodeQL remediation, and security advisories for repos you maintain
+- **[PR Shepherding](suites/pr-shepherding/)** — Get a pull request from pushed to merged: clean diff, green CI, resolved reviews
 - **[Second Brain](suites/second-brain/)** — An Obsidian knowledge base your agent maintains for you
 <!-- suites:end -->
 
