@@ -1,0 +1,13 @@
+{
+  "title": "Go CI Health",
+  "tagline": "Keep a Go repo’s CI green, fast, and secure",
+  "skills": [
+    "debug-ci",
+    "watch-ci",
+    "analyze-go-pprof",
+    "analyze-prometheus-tsdb",
+    "improve-codecov-coverage",
+    "go-deps-security-sweep",
+    "bump-ci-tool-versions"
+  ]
+}
