@@ -1,0 +1,15 @@
+{
+  "title": "Agent-Maintained Hugo Site",
+  "tagline": "Write, illustrate, verify, optimize, and measure a Hugo blog with an agent",
+  "skills": [
+    "write-hugo-blog-post",
+    "author-mermaid-diagram",
+    "generate-og-images",
+    "optimize-svg",
+    "add-llms-txt",
+    "verify-hugo-build",
+    "audit-static-site",
+    "report-site-analytics",
+    "bump-hugo-versions"
+  ]
+}
