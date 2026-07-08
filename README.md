@@ -31,6 +31,7 @@ harness-configs/
 ├── skills/                # shared skills for Claude + pi (source of truth)
 │   ├── README.md          # generated catalog — start here
 │   └── <name>/SKILL.md    # each with a .source.json sidecar
+├── suites/                # curated skill-suite landing pages (suite.json + README)
 ├── pi/                    # pi agent config, stowed into ~/.pi
 └── scripts/               # repo tooling (not symlinked into profiles)
 ```
@@ -45,6 +46,12 @@ Everything is symlinked, so an edit here applies to every profile and both harne
 Most are authored here (`local`); the rest are vendored from [pi-skills](https://github.com/badlogic/pi-skills), [cursor-team-kit](https://github.com/cursor/plugins), [anthropics/skills](https://github.com/anthropics/skills), and the [skills.sh](https://www.skills.sh/) ecosystem.
 Categories are sidecar metadata, not folders — Claude Code and pi only scan `skills/` one level deep.
 To add more: `make skills-find Q=…` to discover, `make skills-add SOURCE=owner/repo@skill CATEGORY=…` to vendor.
+
+<!-- suites:begin -->
+**Suites** — curated skill sets with their own landing pages:
+
+- **[Second Brain](suites/second-brain/)** — An Obsidian knowledge base your agent maintains for you
+<!-- suites:end -->
 
 ## Agents & rules
 

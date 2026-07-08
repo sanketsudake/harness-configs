@@ -649,6 +649,7 @@ cmd_doctor() {
 
   if [[ "$KIND" == "skill" ]]; then
     cmd_catalog --check || issues=$((issues + 1))
+    cmd_suites --check || issues=$((issues + 1))
   fi
   if [[ "$issues" -gt 0 ]]; then
     err "doctor: $issues issue(s) found"
