@@ -1,0 +1,11 @@
+{
+  "title": "OSS Maintainer Copilot",
+  "tagline": "Backlog triage, CodeQL remediation, and security advisories for repos you maintain",
+  "skills": [
+    "triage-gh-backlog",
+    "remediate-codeql-alerts",
+    "go-deps-security-sweep",
+    "source-code-for-gh-advisory",
+    "author-security-advisory"
+  ]
+}
