@@ -46,7 +46,7 @@ SHELL := /bin/bash
 	skills-sync extensions-sync plugins-check plugins-sync \
 	skills-find skills-add \
 	skills-fetch skills-list skills-update skills-update-all skills-category skills-delete \
-	skills-catalog skills-doctor \
+	skills-catalog suites-catalog skills-doctor \
 	agents-fetch agents-list agents-update agents-update-all agents-category agents-delete \
 	agents-doctor
 
@@ -330,6 +330,12 @@ skills-delete:
 # description. CHECK=1 only verifies (exit 1 if stale) without writing.
 skills-catalog:
 	@$(RESOURCE_MANAGER) --kind skill catalog $(if $(CHECK),--check)
+
+# Regenerate each suite README's generated block (skill table + install
+# command) and the Suites index in README.md from suites/*/suite.json.
+# CHECK=1 only verifies (exit 1 if stale) without writing.
+suites-catalog:
+	@$(RESOURCE_MANAGER) --kind skill suites $(if $(CHECK),--check)
 
 # Validate every skill (SKILL.md present, name/description frontmatter,
 # sidecar + category) and that the README catalog is current.
