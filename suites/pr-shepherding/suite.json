@@ -1,0 +1,11 @@
+{
+  "title": "PR Shepherding",
+  "tagline": "Get a pull request from pushed to merged: clean diff, green CI, resolved reviews",
+  "skills": [
+    "make-pr-easy-to-review",
+    "deslop",
+    "resolve-bot-review-threads",
+    "watch-ci",
+    "debug-ci"
+  ]
+}
