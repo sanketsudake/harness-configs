@@ -54,7 +54,7 @@ Density is a feature here — a dashboard exists to support micro/macro reading 
 
 **Failure pattern:** the "wall of equal tiles" — twenty identically-loud KPI cards with no hierarchy, no comparisons, and no way to see what changed.
 
-**Mechanics:** chart marks, palettes, and accessibility belong to a dedicated dataviz skill when one is available; overall page aesthetics to `frontend-design`.
+**Mechanics:** chart marks, palettes, and accessibility belong to a dedicated dataviz skill when one is available; overall page aesthetics to a frontend-design skill when one is available.
 
 ## Tables
 
