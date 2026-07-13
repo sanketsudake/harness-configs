@@ -18,7 +18,6 @@ skills/*/package-lock.json
 /skills/agent-browser/
 /skills/brave-search/
 /skills/caveman/
-/skills/code-review/
 /skills/codebase-design/
 /skills/deslop/
 /skills/docx/
@@ -27,7 +26,6 @@ skills/*/package-lock.json
 /skills/gccli/
 /skills/gdcli/
 /skills/gmcli/
-/skills/grill-me/
 /skills/grill-with-docs/
 /skills/grilling/
 /skills/implement/
@@ -38,9 +36,7 @@ skills/*/package-lock.json
 /skills/pr-review-canvas/
 /skills/prototype/
 /skills/readwise-cli/
-/skills/research/
 /skills/setup-matt-pocock-skills/
-/skills/tdd/
 /skills/thermo-nuclear-code-quality-review/
 /skills/to-spec/
 /skills/to-tickets/
