@@ -6,16 +6,24 @@
 # A "skill" is a directory containing SKILL.md, vendored under skills/.
 # An "agent" is a single .md file, vendored under claude/agents/.
 #
-# Each managed resource carries a sidecar recording where it came from, plus an
-# optional category used to group `list` output:
-#   remote: {"repo","subpath","ref","commit","fetched_at"[,"category"]}
-#   local:  {"repo": null, "note": "..."[, "category"]}
-# A resource with no sidecar is "unmanaged".
+# VENDORED SKILLS are recorded in a single committed manifest and their files
+# are NOT committed — they are materialized from their pinned commit on install:
+#   manifest: skills/vendored.json — an array of
+#     {"name","repo","subpath","ref","commit","category","description"}
+#   working files: skills/<name>/  — gitignored, rebuilt by `materialize`.
+#   (materialize also writes a gitignored skills/<name>/.source.json marker.)
+#
+# AUTHORED skills (no upstream) and ALL AGENTS keep an in-tree sidecar and stay
+# committed as before:
+#   local sidecar: {"repo": null[, "category"]}
+#   remote sidecar (agents): {"repo","subpath","ref","commit","fetched_at"[,"category"]}
 #   skill sidecar: skills/<name>/.source.json        (inside the dir)
 #   agent sidecar: claude/agents/<name>.source.json  (sibling of the .md)
+# A resource with neither a manifest entry nor a sidecar is "unmanaged".
 #
 # Usage:
 #   resource-manager.sh --kind {skill|agent} fetch  (--url URL | --repo REPO --subpath SUBPATH) [--ref REF] [--name NAME] [--category CAT] [--force]
+#   resource-manager.sh --kind skill         materialize [--name NAME] [--force]
 #   resource-manager.sh --kind {skill|agent} list
 #   resource-manager.sh --kind {skill|agent} update (--name NAME | --all)
 #   resource-manager.sh --kind {skill|agent} delete --name NAME [--yes]
@@ -52,10 +60,12 @@ mktmp() { MKTMP_DIR="$(mktemp -d)"; TMPDIRS+=("$MKTMP_DIR"); }
 
 KIND=""
 RESOURCE_ROOT=""
+MANIFEST=""          # skills/vendored.json (skill kind only)
+GITIGNORE="$REPO_ROOT/.gitignore"
 
 configure_kind() {
   case "$KIND" in
-    skill) RESOURCE_ROOT="$REPO_ROOT/skills" ;;
+    skill) RESOURCE_ROOT="$REPO_ROOT/skills"; MANIFEST="$RESOURCE_ROOT/vendored.json" ;;
     agent) RESOURCE_ROOT="$REPO_ROOT/claude/agents" ;;
     *) die "missing or unknown --kind '$KIND' (expected skill|agent)" ;;
   esac
@@ -188,6 +198,156 @@ write_sidecar() {
     > "$(sidecar_path "$name")"
 }
 
+# Shallow-fetch an EXACT commit (not a branch tip) from <repo> into <dest>,
+# narrowed to <set_path>. GitHub serves arbitrary SHAs via fetch-by-sha.
+fetch_commit() {
+  local repo="$1" commit="$2" set_path="$3" dest="$4"
+  git init -q "$dest" || return 1
+  git -C "$dest" remote add origin "$repo" || return 1
+  git -C "$dest" config extensions.partialClone origin
+  git -C "$dest" fetch -q --depth=1 --filter=blob:none origin "$commit" 2>/dev/null || return 1
+  if [[ -n "$set_path" && "$set_path" != "." ]]; then
+    git -C "$dest" sparse-checkout set "$set_path" >/dev/null 2>&1 || return 1
+  fi
+  git -C "$dest" checkout -q FETCH_HEAD 2>/dev/null || return 1
+}
+
+# --- vendored-skill manifest (skills/vendored.json) ------------------------
+# The manifest is the committed source of truth for vendored skills. Their
+# files are gitignored and materialized from the pinned commit.
+
+manifest_read()  { [[ -f "$MANIFEST" ]] && cat "$MANIFEST" || printf '[]'; }
+manifest_names() { manifest_read | jq -r '.[].name'; }
+manifest_entry() { manifest_read | jq -c --arg n "$1" 'map(select(.name==$n))[0] // empty'; }
+manifest_field() { local e; e="$(manifest_entry "$1")"; [[ -n "$e" ]] && jq -r --arg f "$2" '.[$f] // ""' <<<"$e" || printf ''; }
+is_vendored()    { [[ -n "$(manifest_entry "$1")" ]]; }
+
+manifest_upsert() {  # name repo subpath ref commit category description
+  local tmp; tmp="$(mktemp)"
+  manifest_read | jq \
+    --arg name "$1" --arg repo "$2" --arg subpath "$3" --arg ref "$4" \
+    --arg commit "$5" --arg category "$6" --arg description "$7" \
+    'map(select(.name != $name))
+     + [{name:$name, repo:$repo, subpath:$subpath, ref:$ref, commit:$commit, category:$category, description:$description}]
+     | sort_by(.name)' \
+    > "$tmp" && mv "$tmp" "$MANIFEST"
+}
+manifest_remove() {
+  local tmp; tmp="$(mktemp)"
+  manifest_read | jq --arg n "$1" 'map(select(.name != $n))' > "$tmp" && mv "$tmp" "$MANIFEST"
+}
+manifest_set_category() {
+  local tmp; tmp="$(mktemp)"
+  manifest_read | jq --arg n "$1" --arg c "$2" 'map(if .name==$n then .category=$c else . end)' > "$tmp" && mv "$tmp" "$MANIFEST"
+}
+
+# --- skill accessors (dual-source: manifest for vendored, sidecar/SKILL.md
+# for authored) so catalog / suites / doctor work on a bare (un-materialized)
+# checkout as well as a materialized one.
+
+all_skill_names() {
+  { manifest_names
+    local d; for d in "$RESOURCE_ROOT"/*/; do [[ -d "$d" ]] && basename "$d"; done
+  } | sort -u
+}
+skill_exists()      { is_vendored "$1" || [[ -f "$RESOURCE_ROOT/$1/SKILL.md" ]]; }
+skill_description() {
+  if is_vendored "$1"; then manifest_field "$1" description
+  else frontmatter_field "$RESOURCE_ROOT/$1/SKILL.md" description; fi
+}
+skill_category() {
+  local c sc
+  if is_vendored "$1"; then c="$(manifest_field "$1" category)"; printf '%s' "${c:-uncategorized}"
+  else
+    sc="$RESOURCE_ROOT/$1/.source.json"
+    if [[ -f "$sc" ]]; then jq -r '.category // "uncategorized"' "$sc"; else printf 'uncategorized'; fi
+  fi
+}
+
+# --- .gitignore managed block (the vendored skill dirs) --------------------
+GI_BEGIN='# >>> vendored skills (managed by resource-manager.sh; materialized by `make install`)'
+GI_END='# <<< vendored skills'
+
+# Rewrite the managed block so it lists exactly the current manifest's skill
+# dirs. Idempotent; creates the block on first use.
+sync_gitignore() {
+  local blk tmp
+  blk="$(mktemp)"; tmp="$(mktemp)"
+  { printf '%s\n' "$GI_BEGIN"
+    manifest_names | sort | while IFS= read -r n; do [[ -n "$n" ]] && printf '/skills/%s/\n' "$n"; done
+    printf '%s\n' "$GI_END"
+  } > "$blk"
+  if [[ -f "$GITIGNORE" ]] && grep -qxF "$GI_BEGIN" "$GITIGNORE"; then
+    awk -v b="$GI_BEGIN" -v e="$GI_END" -v bf="$blk" '
+      $0==b { while ((getline l < bf) > 0) print l; close(bf); skip=1; next }
+      $0==e { skip=0; next }
+      !skip { print }
+    ' "$GITIGNORE" > "$tmp"
+  else
+    { [[ -f "$GITIGNORE" ]] && cat "$GITIGNORE"; printf '\n'; cat "$blk"; } > "$tmp"
+  fi
+  mv "$tmp" "$GITIGNORE"; rm -f "$blk"
+}
+
+# --- materialize -----------------------------------------------------------
+# Reconstruct one vendored skill's working files from its pinned commit.
+# Idempotent: skips if already present at the right commit (unless force).
+materialize_one() {
+  local name="$1" force="${2:-0}"
+  local entry; entry="$(manifest_entry "$name")"
+  [[ -n "$entry" ]] || { err "$name: not in manifest"; return 1; }
+  local repo subpath ref commit category dest
+  repo="$(jq -r '.repo' <<<"$entry")"
+  subpath="$(jq -r '.subpath' <<<"$entry")"
+  ref="$(jq -r '.ref' <<<"$entry")"
+  commit="$(jq -r '.commit' <<<"$entry")"
+  category="$(jq -r '.category' <<<"$entry")"
+  dest="$(artifact_path "$name")"
+  if [[ "$force" -ne 1 && -f "$dest/SKILL.md" && -f "$dest/.source.json" \
+        && "$(jq -r '.commit // ""' "$dest/.source.json")" == "$commit" ]]; then
+    return 0   # already materialized at the right commit
+  fi
+  local tmp; mktmp; tmp="$MKTMP_DIR"
+  fetch_commit "$repo" "$commit" "$(sparse_set_path "$subpath")" "$tmp/repo" \
+    || { err "$name: could not fetch ${commit:0:7} from $repo (offline?)"; return 1; }
+  validate_artifact "$tmp/repo/$subpath" "$subpath" \
+    || { err "$name: $subpath is not a valid skill at ${commit:0:7}"; return 1; }
+  copy_artifact "$tmp/repo/$subpath" "$dest"
+  write_sidecar "$name" "$repo" "$subpath" "$ref" "$commit" "$category"
+  info "materialized $(rel "$dest") @ ${commit:0:7}"
+}
+
+# Materialize all vendored skills (or one via --name). Missing/offline fetches
+# are warnings, not failures: `make install` must not break offline.
+cmd_materialize() {
+  [[ "$KIND" == "skill" ]] || die "materialize: only supported for --kind skill"
+  local name="" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name)  name="$2"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) die "materialize: unknown argument '$1'" ;;
+    esac
+  done
+  [[ -f "$MANIFEST" ]] || { info "materialize: no $(rel "$MANIFEST"), nothing to do"; return 0; }
+  if [[ -n "$name" ]]; then
+    is_vendored "$name" || die "$name: not a vendored skill (not in manifest)"
+    materialize_one "$name" "$force" || return 1
+    return 0
+  fi
+  local n ok=0 fail=0
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+    if materialize_one "$n" "$force"; then ok=$((ok + 1)); else fail=$((fail + 1)); fi
+  done < <(manifest_names)
+  if [[ "$fail" -gt 0 ]]; then
+    info "materialize: $ok present, $fail could not be fetched (offline? those skills are unavailable until re-run online)"
+  else
+    info "materialize: $ok skill(s) present"
+  fi
+  return 0
+}
+
 # --- subcommands -----------------------------------------------------------
 
 cmd_fetch() {
@@ -220,7 +380,11 @@ cmd_fetch() {
   [[ -n "$name" ]] || name="$(default_name "$subpath")"
 
   local dest; dest="$(artifact_path "$name")"
-  if [[ -e "$dest" && "$force" -ne 1 ]]; then
+  if [[ "$KIND" == "skill" ]]; then
+    if is_vendored "$name" && [[ "$force" -ne 1 ]]; then
+      die "$name is already in the manifest (use FORCE=1 to overwrite, or skills-update to refresh)"
+    fi
+  elif [[ -e "$dest" && "$force" -ne 1 ]]; then
     die "$(rel "$dest") already exists (use FORCE=1 to overwrite, or ${KIND}s-update to refresh)"
   fi
 
@@ -236,15 +400,21 @@ cmd_fetch() {
     || die "$subpath in $repo is not a valid $KIND"
 
   copy_artifact "$tmp/repo/$subpath" "$dest"
-  write_sidecar "$name" "$repo" "$subpath" "$ref" "$commit" "$category"
+  if [[ "$KIND" == "skill" ]]; then
+    local description; description="$(frontmatter_field "$dest/SKILL.md" description)"
+    manifest_upsert "$name" "$repo" "$subpath" "$ref" "$commit" "$category" "$description"
+    write_sidecar "$name" "$repo" "$subpath" "$ref" "$commit" "$category"  # gitignored materialize marker
+    sync_gitignore
+  else
+    write_sidecar "$name" "$repo" "$subpath" "$ref" "$commit" "$category"
+  fi
   info "fetched $(rel "$dest") @ ${commit:0:7}${category:+ [$category]}"
 }
 
-# List resources grouped by category. Each row's category comes from its
-# sidecar's `.category` (uncategorized if absent); rows are bucketed under a
-# `<category> (<count>)` header with an aligned table.
-cmd_list() {
-  local data="" name sidecar repo subpath ref commit fetched category status
+# Build list rows from in-tree sidecars (agents, and authored/unmanaged skill
+# dirs). Emits: category\tname\tstatus\trepo\tsubpath\tref\tcommit\tfetched.
+list_data_generic() {
+  local name sidecar repo subpath ref commit fetched category status
   while IFS=$'\t' read -r name sidecar; do
     [[ -n "$name" ]] || continue
     repo=-; subpath=-; ref=-; commit=-; fetched=-
@@ -263,12 +433,52 @@ cmd_list() {
         fetched="$(jq -r '.fetched_at // "-"' "$sidecar")"
       fi
     fi
-    data+="$category"$'\t'"$name"$'\t'"$status"$'\t'"$repo"$'\t'"$subpath"$'\t'"$ref"$'\t'"$commit"$'\t'"$fetched"$'\n'
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$category" "$name" "$status" "$repo" "$subpath" "$ref" "$commit" "$fetched"
   done < <(iter_resources)
+}
+
+# Build skill list rows: vendored from the manifest (status materialized/pinned
+# by whether the working tree is present), authored/unmanaged from their dirs.
+list_data_skill() {
+  local name entry repo subpath ref commit category status dir sidecar
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    entry="$(manifest_entry "$name")"
+    repo="$(jq -r '.repo' <<<"$entry")"
+    subpath="$(jq -r '.subpath' <<<"$entry")"
+    ref="$(jq -r '.ref' <<<"$entry")"
+    commit="$(jq -r '.commit' <<<"$entry")"; commit="${commit:0:7}"
+    category="$(jq -r '.category // "uncategorized"' <<<"$entry")"; [[ -n "$category" ]] || category=uncategorized
+    if [[ -f "$RESOURCE_ROOT/$name/SKILL.md" ]]; then status=materialized; else status=pinned; fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$category" "$name" "$status" "$repo" "$subpath" "$ref" "$commit" "-"
+  done < <(manifest_names)
+  for dir in "$RESOURCE_ROOT"/*/; do
+    [[ -d "$dir" ]] || continue
+    name="$(basename "$dir")"
+    is_vendored "$name" && continue
+    sidecar="$dir.source.json"
+    if [[ ! -f "$sidecar" ]]; then
+      status=unmanaged; category=uncategorized
+    else
+      category="$(jq -r '.category // "uncategorized"' "$sidecar")"
+      status=local
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$category" "$name" "$status" "-" "-" "-" "-" "-"
+  done
+}
+
+# List resources grouped by category, rows bucketed under a `<category>
+# (<count>)` header with an aligned table.
+cmd_list() {
+  local data cat count
+  if [[ "$KIND" == "skill" ]]; then
+    data="$(list_data_skill | sort -t$'\t' -k1,1 -k2,2)"
+  else
+    data="$(list_data_generic)"
+  fi
 
   [[ -n "$data" ]] || { info "no ${KIND}s found"; return 0; }
 
-  local cat count
   while IFS= read -r cat; do
     [[ -n "$cat" ]] || continue
     count="$(printf '%s' "$data" | awk -F'\t' -v c="$cat" '$1==c' | grep -c .)"
@@ -280,8 +490,45 @@ cmd_list() {
 }
 
 # Re-fetch one remote resource in place. Reports via stderr.
+# Re-resolve a vendored skill's ref to the newest upstream commit; if it moved,
+# re-materialize, refresh the pinned commit + cached description in the manifest.
+update_one_skill() {
+  local name="$1"
+  if ! is_vendored "$name"; then
+    if [[ -d "$RESOURCE_ROOT/$name" ]]; then
+      info "$name: authored skill, nothing to update"; return 0
+    fi
+    err "$name: no such skill"; return 1
+  fi
+  local entry repo subpath ref old_commit category
+  entry="$(manifest_entry "$name")"
+  repo="$(jq -r '.repo' <<<"$entry")"
+  subpath="$(jq -r '.subpath' <<<"$entry")"
+  ref="$(jq -r '.ref' <<<"$entry")"
+  old_commit="$(jq -r '.commit' <<<"$entry")"
+  category="$(jq -r '.category' <<<"$entry")"
+
+  local tmp; mktmp; tmp="$MKTMP_DIR"
+  sparse_clone "$repo" "$ref" "$(sparse_set_path "$subpath")" "$tmp/repo"
+  local new_commit; new_commit="$(git -C "$tmp/repo" rev-parse HEAD)"
+  if [[ "$new_commit" == "$old_commit" ]]; then
+    info "$name: up to date (${old_commit:0:7})"; return 0
+  fi
+  validate_artifact "$tmp/repo/$subpath" "$subpath" \
+    || { err "$name: $subpath is no longer a valid skill upstream, skipping"; return 1; }
+
+  local dest description
+  dest="$(artifact_path "$name")"
+  copy_artifact "$tmp/repo/$subpath" "$dest"
+  description="$(frontmatter_field "$dest/SKILL.md" description)"
+  manifest_upsert "$name" "$repo" "$subpath" "$ref" "$new_commit" "$category" "$description"
+  write_sidecar "$name" "$repo" "$subpath" "$ref" "$new_commit" "$category"
+  info "$name: updated ${old_commit:0:7} -> ${new_commit:0:7}"
+}
+
 update_one() {
   local name="$1"
+  [[ "$KIND" == "skill" ]] && { update_one_skill "$name"; return; }
   local artifact sidecar
   artifact="$(artifact_path "$name")"
   sidecar="$(sidecar_path "$name")"
@@ -328,12 +575,19 @@ cmd_update() {
   done
 
   if [[ "$all" -eq 1 ]]; then
-    local n s
-    while IFS=$'\t' read -r n s; do
-      [[ -f "$s" ]] || continue
-      [[ "$(jq -r '.repo // empty' "$s")" ]] || continue
-      update_one "$n" || true
-    done < <(iter_resources)
+    if [[ "$KIND" == "skill" ]]; then
+      local n
+      while IFS= read -r n; do
+        [[ -n "$n" ]] && { update_one_skill "$n" || true; }
+      done < <(manifest_names)
+    else
+      local n s
+      while IFS=$'\t' read -r n s; do
+        [[ -f "$s" ]] || continue
+        [[ "$(jq -r '.repo // empty' "$s")" ]] || continue
+        update_one "$n" || true
+      done < <(iter_resources)
+    fi
     return 0
   fi
 
@@ -352,13 +606,25 @@ cmd_delete() {
   done
   [[ -n "$name" ]] || die "delete: --name NAME is required"
   local artifact; artifact="$(artifact_path "$name")"
-  [[ -e "$artifact" ]] || die "$(rel "$artifact") does not exist"
+  local vendored=0
+  [[ "$KIND" == "skill" ]] && is_vendored "$name" && vendored=1
+  # A vendored skill exists in the manifest even if its files aren't materialized.
+  if [[ "$vendored" -ne 1 && ! -e "$artifact" ]]; then
+    die "$(rel "$artifact") does not exist"
+  fi
 
   if [[ "$yes" -ne 1 ]]; then
     local reply
     printf 'Delete %s %s? [y/N] ' "$KIND" "$name" >&2
     read -r reply </dev/tty || reply=""
     [[ "$reply" == "y" || "$reply" == "Y" ]] || { info "aborted"; return 0; }
+  fi
+  if [[ "$vendored" -eq 1 ]]; then
+    manifest_remove "$name"
+    rm -rf "$artifact"
+    sync_gitignore
+    info "deleted vendored skill $name (removed from manifest, working tree, and .gitignore)"
+    return 0
   fi
   case "$KIND" in
     skill) rm -rf "$artifact" ;;
@@ -415,22 +681,24 @@ purpose_from_description() {
 # category-grouped tables) to stdout.
 render_catalog() {
   [[ "$KIND" == "skill" ]] || die "catalog: only supported for --kind skill"
-  local data="" name sidecar category desc purpose total
-  while IFS=$'\t' read -r name sidecar; do
+  local data="" name category desc purpose total
+  # all_skill_names is sorted, so rows are alphabetical within each category.
+  # Vendored skills draw category/description from the manifest (so the catalog
+  # renders on a bare checkout); authored skills from their sidecar + SKILL.md.
+  while IFS= read -r name; do
     [[ -n "$name" ]] || continue
-    [[ -f "$RESOURCE_ROOT/$name/SKILL.md" ]] || continue
-    category=uncategorized
-    [[ -f "$sidecar" ]] && category="$(jq -r '.category // "uncategorized"' "$sidecar")"
-    desc="$(frontmatter_field "$RESOURCE_ROOT/$name/SKILL.md" description)"
+    skill_exists "$name" || continue
+    category="$(skill_category "$name")"
+    desc="$(skill_description "$name")"
     purpose="$(purpose_from_description "$desc")"
     [[ -n "$purpose" ]] || purpose="(no description)"
     data+="$category"$'\t'"$name"$'\t'"$purpose"$'\n'
-  done < <(iter_resources)
+  done < <(all_skill_names)
   [[ -n "$data" ]] || { info "no skills found"; return 0; }
 
   total="$(printf '%s' "$data" | grep -c .)"
   printf '# Skills catalog\n\n'
-  printf '%s skills, grouped by the `category` in each skill'\''s `.source.json` sidecar.\n' "$total"
+  printf '%s skills, grouped by `category` (from `skills/vendored.json` for vendored skills, from each `.source.json` sidecar for authored ones).\n' "$total"
   printf 'Generated by `make skills-catalog` — do not edit by hand (`make skills-doctor` flags a stale file).\n\n'
 
   # Categories alphabetically, uncategorized last.
@@ -502,8 +770,8 @@ validate_suite_manifest() {
     "$manifest" >/dev/null 2>&1 \
     || { err "$(rel "$manifest"): must have a title and a non-empty skills array"; return 1; }
   while IFS= read -r skill; do
-    [[ -f "$RESOURCE_ROOT/$skill/SKILL.md" ]] \
-      || { err "$(rel "$manifest"): skill '$skill' not found under skills/"; bad=1; }
+    skill_exists "$skill" \
+      || { err "$(rel "$manifest"): skill '$skill' not found (no manifest entry or skills/$skill/SKILL.md)"; bad=1; }
   done < <(jq -r '.skills[]' "$manifest")
   return "$bad"
 }
@@ -515,7 +783,7 @@ render_suite_block() {
   printf '## Skills in this suite\n\n'
   printf '| Skill | Purpose |\n|-------|---------|\n'
   while IFS= read -r skill; do
-    desc="$(frontmatter_field "$RESOURCE_ROOT/$skill/SKILL.md" description)"
+    desc="$(skill_description "$skill")"
     purpose="$(purpose_from_description "$desc")"
     [[ -n "$purpose" ]] || purpose="(no description)"
     printf '| [`%s`](../../skills/%s/SKILL.md) | %s |\n' "$skill" "$skill" "$purpose"
@@ -622,35 +890,71 @@ cmd_suites() {
 }
 
 # Validate every resource of this kind; exit 1 if any problem is found.
-# Skills additionally verify the README catalog block is current.
+# Skills additionally verify the README catalog + suites blocks are current.
+# Everything is checked from committed state — no materialization required.
 cmd_doctor() {
   local issues=0 name sidecar md desc
   flag() { printf '%s\n' "$*"; issues=$((issues + 1)); }
-  while IFS=$'\t' read -r name sidecar; do
-    [[ -n "$name" ]] || continue
-    case "$KIND" in
-      skill) md="$RESOURCE_ROOT/$name/SKILL.md" ;;
-      agent) md="$RESOURCE_ROOT/$name.md" ;;
-    esac
-    if [[ ! -f "$md" ]]; then
-      flag "$name: missing $(rel "$md")"
-      continue
-    fi
-    [[ -n "$(frontmatter_field "$md" name)" ]] \
-      || flag "$name: SKILL/agent frontmatter has no 'name'"
-    desc="$(frontmatter_field "$md" description)"
-    [[ -n "$desc" ]] || flag "$name: frontmatter has no 'description'"
-    if [[ ! -f "$sidecar" ]]; then
-      flag "$name: unmanaged (no .source.json sidecar)"
-    elif [[ "$(jq -r '.category // ""' "$sidecar")" == "" ]]; then
-      flag "$name: sidecar has no 'category'"
-    fi
-  done < <(iter_resources)
 
   if [[ "$KIND" == "skill" ]]; then
+    # Vendored skills: validate the manifest. Their files may be un-materialized.
+    if [[ ! -f "$MANIFEST" ]]; then
+      flag "$(rel "$MANIFEST"): missing"
+    elif ! jq -e 'type == "array"' "$MANIFEST" >/dev/null 2>&1; then
+      flag "$(rel "$MANIFEST"): not a JSON array"
+    else
+      local dup f
+      dup="$(manifest_names | sort | uniq -d)"
+      [[ -z "$dup" ]] || flag "manifest: duplicate skill name(s): $(printf '%s' "$dup" | tr '\n' ' ')"
+      while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        local entry; entry="$(manifest_entry "$name")"
+        for f in repo subpath ref commit category description; do
+          [[ -n "$(jq -r --arg f "$f" '.[$f] // ""' <<<"$entry")" ]] \
+            || flag "$name: manifest entry missing '$f'"
+        done
+        grep -qxF "/skills/$name/" "$GITIGNORE" 2>/dev/null \
+          || flag "$name: vendored dir not listed in .gitignore managed block"
+      done < <(manifest_names)
+    fi
+    # Authored / unmanaged skills: dirs not in the manifest.
+    local dir
+    for dir in "$RESOURCE_ROOT"/*/; do
+      [[ -d "$dir" ]] || continue
+      name="$(basename "$dir")"
+      is_vendored "$name" && continue
+      md="$dir/SKILL.md"
+      [[ -f "$md" ]] || { flag "$name: missing $(rel "$md")"; continue; }
+      [[ -n "$(frontmatter_field "$md" name)" ]] || flag "$name: SKILL frontmatter has no 'name'"
+      [[ -n "$(frontmatter_field "$md" description)" ]] || flag "$name: frontmatter has no 'description'"
+      sidecar="$dir.source.json"
+      if [[ ! -f "$sidecar" ]]; then
+        flag "$name: unmanaged (no .source.json sidecar)"
+      elif [[ "$(jq -r '.category // ""' "$sidecar")" == "" ]]; then
+        flag "$name: sidecar has no 'category'"
+      fi
+    done
     cmd_catalog --check || issues=$((issues + 1))
     cmd_suites --check || issues=$((issues + 1))
+  else
+    while IFS=$'\t' read -r name sidecar; do
+      [[ -n "$name" ]] || continue
+      md="$RESOURCE_ROOT/$name.md"
+      if [[ ! -f "$md" ]]; then
+        flag "$name: missing $(rel "$md")"
+        continue
+      fi
+      [[ -n "$(frontmatter_field "$md" name)" ]] || flag "$name: agent frontmatter has no 'name'"
+      desc="$(frontmatter_field "$md" description)"
+      [[ -n "$desc" ]] || flag "$name: frontmatter has no 'description'"
+      if [[ ! -f "$sidecar" ]]; then
+        flag "$name: unmanaged (no .source.json sidecar)"
+      elif [[ "$(jq -r '.category // ""' "$sidecar")" == "" ]]; then
+        flag "$name: sidecar has no 'category'"
+      fi
+    done < <(iter_resources)
   fi
+
   if [[ "$issues" -gt 0 ]]; then
     err "doctor: $issues issue(s) found"
     return 1
@@ -671,6 +975,11 @@ cmd_category() {
   done
   [[ -n "$name"     ]] || die "category: --name NAME is required"
   [[ -n "$category" ]] || die "category: --category CAT is required"
+  if [[ "$KIND" == "skill" ]] && is_vendored "$name"; then
+    manifest_set_category "$name" "$category"
+    info "$name: category set to '$category'"
+    return 0
+  fi
   local artifact sidecar
   artifact="$(artifact_path "$name")"
   sidecar="$(sidecar_path "$name")"
@@ -691,16 +1000,18 @@ cmd_category() {
 KIND="$2"; shift 2
 configure_kind
 
-[[ $# -ge 1 ]] || die "missing command (expected fetch|list|update|delete)"
+[[ $# -ge 1 ]] || die "missing command (expected fetch|materialize|list|update|delete)"
 cmd="$1"; shift
 case "$cmd" in
-  fetch)    cmd_fetch    "$@" ;;
-  list)     cmd_list     "$@" ;;
-  update)   cmd_update   "$@" ;;
-  delete)   cmd_delete   "$@" ;;
-  category) cmd_category "$@" ;;
-  catalog)  cmd_catalog  "$@" ;;
-  suites)   cmd_suites   "$@" ;;
-  doctor)   cmd_doctor   "$@" ;;
-  *) die "unknown command '$cmd' (expected fetch|list|update|delete|category|catalog|suites|doctor)" ;;
+  fetch)       cmd_fetch       "$@" ;;
+  materialize) cmd_materialize "$@" ;;
+  sync-gitignore) [[ "$KIND" == "skill" ]] || die "sync-gitignore: skill only"; sync_gitignore; info "synced .gitignore vendored-skills block" ;;
+  list)        cmd_list        "$@" ;;
+  update)      cmd_update      "$@" ;;
+  delete)      cmd_delete      "$@" ;;
+  category)    cmd_category    "$@" ;;
+  catalog)     cmd_catalog     "$@" ;;
+  suites)      cmd_suites      "$@" ;;
+  doctor)      cmd_doctor      "$@" ;;
+  *) die "unknown command '$cmd' (expected fetch|materialize|list|update|delete|category|catalog|suites|doctor)" ;;
 esac

@@ -45,12 +45,12 @@ SHELL := /bin/bash
 	agents-link agents-unlink \
 	skills-sync extensions-sync plugins-check plugins-sync \
 	skills-find skills-add \
-	skills-fetch skills-list skills-update skills-update-all skills-category skills-delete \
+	skills-fetch skills-materialize skills-list skills-update skills-update-all skills-category skills-delete \
 	skills-catalog suites-catalog skills-doctor \
 	agents-fetch agents-list agents-update agents-update-all agents-category agents-delete \
 	agents-doctor
 
-install: skills-link claude-md-link commands-link rules-link scripts-link agents-link
+install: skills-materialize skills-link claude-md-link commands-link rules-link scripts-link agents-link
 	mkdir -p $(PI_TARGET)
 	$(STOW) --dir=$(STOW_DIR) --target=$(PI_TARGET) --adopt pi
 
@@ -308,6 +308,13 @@ skills-fetch:
 		$(if $(NAME),--name "$(NAME)") \
 		$(if $(CATEGORY),--category "$(CATEGORY)") \
 		$(if $(FORCE),--force)
+
+# Reconstruct vendored skills' working files from the pinned commits in
+# skills/vendored.json (their files are gitignored, not committed). Idempotent —
+# skips any skill already present at the right commit. Run by `make install`;
+# NAME=<skill> materializes one, FORCE=1 re-fetches even if present.
+skills-materialize:
+	@$(RESOURCE_MANAGER) --kind skill materialize $(if $(NAME),--name "$(NAME)") $(if $(FORCE),--force)
 
 skills-list:
 	@$(RESOURCE_MANAGER) --kind skill list

@@ -13,3 +13,30 @@ __pycache__/
 # under the symlinked profiles they land in the repo tree, so keep them out of git.
 skills/*/node_modules/
 skills/*/package-lock.json
+
+# >>> vendored skills (managed by resource-manager.sh; materialized by `make install`)
+/skills/agent-browser/
+/skills/brave-search/
+/skills/caveman/
+/skills/codebase-design/
+/skills/deslop/
+/skills/docx/
+/skills/domain-modeling/
+/skills/find-skills/
+/skills/gccli/
+/skills/gdcli/
+/skills/gmcli/
+/skills/grill-with-docs/
+/skills/grilling/
+/skills/improve-codebase-architecture/
+/skills/make-pr-easy-to-review/
+/skills/pdf/
+/skills/pptx/
+/skills/pr-review-canvas/
+/skills/readwise-cli/
+/skills/thermo-nuclear-code-quality-review/
+/skills/transcribe/
+/skills/vscode/
+/skills/xlsx/
+/skills/youtube-transcript/
+# <<< vendored skills
