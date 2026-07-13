@@ -27,15 +27,6 @@
     "description": "Ultra-compressed communication mode. Cuts token usage ~75% by speaking like caveman while keeping full technical accuracy. Supports intensity levels: lite, full (default), ultra, wenyan-lite, wenyan-full, wenyan-ultra. Use when user says \"caveman mode\", \"talk like caveman\", \"use caveman\", \"less tokens\", \"be brief\", or invokes /caveman. Also auto-triggers when token efficiency is requested."
   },
   {
-    "name": "code-review",
-    "repo": "https://github.com/mattpocock/skills",
-    "subpath": "skills/engineering/code-review",
-    "ref": "main",
-    "commit": "66898f60e8c744e269f8ce06c2b2b99ce7660d5f",
-    "category": "engineering",
-    "description": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/PRD asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
-  },
-  {
     "name": "codebase-design",
     "repo": "https://github.com/mattpocock/skills",
     "subpath": "skills/engineering/codebase-design",
@@ -106,15 +97,6 @@
     "commit": "90bb51cae36515a648515b633a81c0c6efc8c74d",
     "category": "google-cli",
     "description": "Gmail CLI for searching emails, reading threads, sending messages, managing drafts, and handling labels/attachments."
-  },
-  {
-    "name": "grill-me",
-    "repo": "https://github.com/mattpocock/skills",
-    "subpath": "skills/productivity/grill-me",
-    "ref": "main",
-    "commit": "66898f60e8c744e269f8ce06c2b2b99ce7660d5f",
-    "category": "engineering",
-    "description": "A relentless interview to sharpen a plan or design."
   },
   {
     "name": "grill-with-docs",
@@ -207,15 +189,6 @@
     "description": "How to use the Readwise CLI — access highlights, documents, and your entire reading library from the command line"
   },
   {
-    "name": "research",
-    "repo": "https://github.com/mattpocock/skills",
-    "subpath": "skills/engineering/research",
-    "ref": "main",
-    "commit": "66898f60e8c744e269f8ce06c2b2b99ce7660d5f",
-    "category": "engineering",
-    "description": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent."
-  },
-  {
     "name": "setup-matt-pocock-skills",
     "repo": "https://github.com/mattpocock/skills",
     "subpath": "skills/engineering/setup-matt-pocock-skills",
@@ -223,15 +196,6 @@
     "commit": "66898f60e8c744e269f8ce06c2b2b99ce7660d5f",
     "category": "engineering",
     "description": "Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills."
-  },
-  {
-    "name": "tdd",
-    "repo": "https://github.com/mattpocock/skills",
-    "subpath": "skills/engineering/tdd",
-    "ref": "main",
-    "commit": "66898f60e8c744e269f8ce06c2b2b99ce7660d5f",
-    "category": "engineering",
-    "description": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests."
   },
   {
     "name": "thermo-nuclear-code-quality-review",
