@@ -1,8 +1,5 @@
 {
-  "repo": "https://github.com/shivprime94/file-itr",
-  "subpath": "skills/itr-india",
-  "ref": "main",
-  "commit": "2275b98a183005b23a254db789d3eebc20522708",
-  "fetched_at": "2026-07-04T11:23:52Z",
-  "category": "personal-finance"
+  "repo": null,
+  "category": "personal-finance",
+  "note": "Forked from https://github.com/shivprime94/file-itr (skills/itr-india @ 2275b98) and locally diverged (repo-specific edits, e.g. agent-browser reference + added capital-gains guidance). Authored/committed here; NOT materialized from a pin. Do not re-vendor: re-fetching would clobber the local edits."
 }
