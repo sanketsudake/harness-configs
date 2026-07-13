@@ -319,6 +319,25 @@ materialize_one() {
 
 # Materialize all vendored skills (or one via --name). Missing/offline fetches
 # are warnings, not failures: `make install` must not break offline.
+# Names of stale vendored skill dirs: on disk with a remote sidecar
+# (.source.json repo != null) but no manifest entry, and NOT git-tracked. The
+# tracked-guard guarantees a committed authored skill is never pruned, even if
+# its sidecar is somehow misconfigured. Skill kind only.
+find_vendored_orphans() {
+  [[ "$KIND" == "skill" ]] || return 0
+  local d name repo
+  for d in "$RESOURCE_ROOT"/*/; do
+    [[ -d "$d" ]] || continue
+    name="$(basename "$d")"
+    [[ -f "$d/.source.json" ]] || continue
+    repo="$(jq -r '.repo // "null"' "$d/.source.json" 2>/dev/null || echo null)"
+    [[ "$repo" != "null" && -n "$repo" ]] || continue   # authored/unmanaged -> skip
+    is_vendored "$name" && continue                       # still in manifest -> not orphan
+    git -C "$REPO_ROOT" ls-files --error-unmatch "skills/$name" >/dev/null 2>&1 && continue  # tracked -> never prune
+    printf '%s\n' "$name"
+  done
+}
+
 cmd_materialize() {
   [[ "$KIND" == "skill" ]] || die "materialize: only supported for --kind skill"
   local name="" force=0
@@ -340,10 +359,24 @@ cmd_materialize() {
     [[ -n "$n" ]] || continue
     if materialize_one "$n" "$force"; then ok=$((ok + 1)); else fail=$((fail + 1)); fi
   done < <(manifest_names)
+
+  # Reconcile: a vendored dir dropped from the manifest is stale — remove it so the
+  # on-disk vendored set matches the manifest, rather than leaving a skill active in
+  # the profiles that we intended to delete. Guarded (untracked, remote-sidecar only).
+  local orphan pruned=0
+  while IFS= read -r orphan; do
+    [[ -n "$orphan" ]] || continue
+    rm -rf "${RESOURCE_ROOT:?}/$orphan"
+    info "pruned stale vendored skill $orphan (no longer in manifest)"
+    pruned=$((pruned + 1))
+  done < <(find_vendored_orphans)
+
+  local summary="materialize: $ok skill(s) present"
+  [[ "$pruned" -gt 0 ]] && summary="$summary, $pruned pruned"
   if [[ "$fail" -gt 0 ]]; then
-    info "materialize: $ok present, $fail could not be fetched (offline? those skills are unavailable until re-run online)"
+    info "$summary, $fail could not be fetched (offline? those skills are unavailable until re-run online)"
   else
-    info "materialize: $ok skill(s) present"
+    info "$summary"
   fi
   return 0
 }
@@ -930,6 +963,8 @@ cmd_doctor() {
       sidecar="$dir.source.json"
       if [[ ! -f "$sidecar" ]]; then
         flag "$name: unmanaged (no .source.json sidecar)"
+      elif [[ "$(jq -r '.repo // "null"' "$sidecar")" != "null" ]]; then
+        flag "$name: stale vendored dir (sidecar names a repo but not in $(rel "$MANIFEST")); prune with 'make skills-materialize' or re-add with 'make skills-fetch'"
       elif [[ "$(jq -r '.category // ""' "$sidecar")" == "" ]]; then
         flag "$name: sidecar has no 'category'"
       fi

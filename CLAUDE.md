@@ -69,7 +69,9 @@ Targets (each `skills-*` has an `agents-*` twin taking the same variables):
   A full GitHub URL also works: `URL='https://github.com/owner/name/tree/<ref>/<subpath>'`.
 - `make skills-materialize [NAME=…] [FORCE=1]` — reconstruct the gitignored vendored skill dirs from the manifest pins (git-init + shallow fetch of the exact `commit` + sparse-checkout).
   Idempotent: skips a dir whose `.source.json` already records the pinned commit unless `FORCE=1`.
-  `NAME=` materializes just one.
+  A full run also **reconciles down**: a vendored dir that has fallen out of the manifest (e.g. a `skills-delete` that landed via `git pull` on another machine) is pruned, so the on-disk vendored set matches the manifest instead of leaving a deleted skill live in the profiles.
+  Pruning is guarded to untracked dirs whose `.source.json` still names a `repo`, so a committed authored skill is never removed.
+  `NAME=` materializes just that one and prunes nothing.
   `make install` runs this first; it never fails the build offline — unreachable skills are warned and skipped.
 - `make agents-fetch REPO=owner/name SUBPATH=path/to/agent.md [REF=main] [NAME=…] [FORCE=1]` — same, but the subpath is a `.md` file (NAME defaults to its basename minus `.md`), copied into `claude/agents/<NAME>.md`.
   Accepts a `/blob/` URL too.
@@ -87,7 +89,7 @@ Targets (each `skills-*` has an `agents-*` twin taking the same variables):
   Vendored skills' `category`/`description` come from `skills/vendored.json`; authored skills' come from their `.source.json` `category` + `SKILL.md` frontmatter `description` (first sentence, truncated) — so the catalog regenerates correctly even on a bare checkout where the vendored dirs aren't materialized.
   The main `README.md` just links to it.
   Run it after adding, removing, or recategorizing a skill; `CHECK=1` only verifies (exit 1 if stale).
-- `make skills-doctor` / `make agents-doctor` — validate every resource: for skills, the manifest is well-formed (required fields, no duplicate names, every vendored dir gitignored) and each authored dir has a `SKILL.md` + sidecar with `category`, plus `skills/README.md` is current; for agents, markdown present with non-empty frontmatter `name`/`description` and a sidecar carrying a `category`.
+- `make skills-doctor` / `make agents-doctor` — validate every resource: for skills, the manifest is well-formed (required fields, no duplicate names, every vendored dir gitignored), each authored dir has a `SKILL.md` + sidecar with `category`, and no dir is a stale vendored orphan (a `.source.json` naming a `repo` with no manifest entry — `skills-materialize` prunes these), plus `skills/README.md` is current; for agents, markdown present with non-empty frontmatter `name`/`description` and a sidecar carrying a `category`.
   Exit 1 on any issue.
 - `make suites-catalog [CHECK=1]` — regenerate (or verify) the generated blocks in `suites/*/README.md` and the Suites index in `README.md` (see "Skill suites").
 
