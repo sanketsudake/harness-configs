@@ -9,14 +9,16 @@ disable-model-invocation: true
 Ensure there is a Chrome tab logged in to an app that authenticates through your organization's **Microsoft (Entra) SSO**, driven by the **`chrome-cdp`** CLI.
 It drives the user's real Chrome, which already holds their Microsoft session — so this skill types **no** credentials.
 
-> This is the cdp port of `login-microsoft-sso` (which uses the claude-in-chrome extension). Same behavior, different driver.
+> This is the cdp port of `login-microsoft-sso` (which uses the claude-in-chrome extension).
+> Same behavior, different driver.
 > Follow the **`drive-chrome-cdp`** skill for the CLI's setup, output contract, and passkey rule.
 > Local skill, maintained in this repo (`.source.json` has `"repo": null`).
 
 ## Supported apps & config
 
 The **supported-app list and the config schema are identical to `login-microsoft-sso`** — see that skill for the authoritative list and don't restate it here (it would drift).
-Read the same never-committed config at runtime and take the requested app's entries: `~/.config/harness-configs/login-microsoft-sso/config` (`<APP>_HOME_URL`, `<APP>_SSO_BUTTON`). Do not hardcode URLs or button labels.
+Read the same never-committed config at runtime and take the requested app's entries: `~/.config/harness-configs/login-microsoft-sso/config` (`<APP>_HOME_URL`, `<APP>_SSO_BUTTON`).
+Do not hardcode URLs or button labels.
 
 One behavioral note the steps below rely on: apps like `outlook` have **no** SSO button (`<APP>_SSO_BUTTON` unset) and auto-authenticate via the shared Microsoft session — for those, skip the SSO click and just navigate + verify.
 
@@ -24,18 +26,32 @@ One behavioral note the steps below rely on: apps like `outlook` have **no** SSO
 
 All commands take `--json`; parse the envelope and branch on the exit code (see `drive-chrome-cdp`).
 
-1. **Connection.** `chrome-cdp doctor --json`. If `ok:false` (connection_failed), tell the user to enable `chrome://inspect/#remote-debugging`, then re-run. Do not proceed until ready.
-2. **Pick a tab.** `chrome-cdp list --json`. Prefer a tab already on the app's host (reuse it in place); otherwise pick one to drive and note its `id`. Set it sticky: `chrome-cdp use <id>` (so later commands need no `--target`). Record that `id` — it is this skill's output.
-3. **Config.** Source the config; take `<APP>_HOME_URL` and `<APP>_SSO_BUTTON` for the requested app.
-4. **Navigate + settle.** `chrome-cdp nav "$HOME_URL" --json`, then let redirects settle: `chrome-cdp wait --url "<expected app host or path>" --timeout 15s --json`, or `chrome-cdp wait --for 3s --json` if you don't yet know the settled URL.
-5. **Check where you landed.** `chrome-cdp eval "location.href" --json` (read `result.value`):
-   - **On the app** (not a login/identity page): **done — return the tab id.**
-   - **On the app's sign-in page** (a vendor identity host such as a Workday `*-identity.*` domain, or an app `/account/login` page): click that app's SSO entry.
+1. **Connection.**
+   `chrome-cdp doctor --json`.
+   If `ok:false` (connection_failed), tell the user to enable `chrome://inspect/#remote-debugging`, then re-run.
+   Do not proceed until ready.
+2. **Pick a tab.**
+   `chrome-cdp list --url "<app host>" --json` (the `--url` filter finds an existing tab on the app without scanning the whole list).
+   Reuse it in place and `chrome-cdp use <id>` (sticky, so later commands need no `--target`).
+   Record that `id` — it is this skill's output.
+   **No such tab?**
+   Skip straight to a fresh one in step 4 with `open`.
+3. **Config.**
+   Source the config; take `<APP>_HOME_URL` and `<APP>_SSO_BUTTON` for the requested app.
+4. **Navigate + settle.**
+   If reusing a tab: `chrome-cdp nav "$HOME_URL" --json`.
+   If starting fresh: `chrome-cdp open "$HOME_URL" --json` (creates the tab, navigates, makes it current — record the returned id).
+   Then let the SPA settle: `chrome-cdp wait --url "<expected app host or path>" --timeout 15s --json` if you know the settled URL, else `chrome-cdp wait --idle --json` (network-settle — prefer over a fixed `wait --for`).
+5. **Check where you landed — by PAGE CONTENT, not just the URL.**
+   `chrome-cdp eval "location.href" --json` tells you the host, but an SPA can render a **login view at the app's own URL** (e.g. Engage serves a "Login with …" button under the activity URL), so a URL that looks like the app is *not* proof you're signed in.
+   Confirm with a content check: `chrome-cdp snap --grep "Log ?in|Sign ?in" --json` — if a login/SSO control is present, you're on a sign-in page regardless of the URL; if it's absent (or a known app control like a nav/menu is present), you're in.
+   - **On the app** (no login control, an app control present): **done — return the tab id.**
+   - **On the app's sign-in page** (a login/SSO control is present, or a vendor identity host such as a Workday `*-identity.*` domain / an app `/account/login` page): click that app's SSO entry.
      - `chrome-cdp snap --json` to confirm the button's exact accessible name, then
      - `chrome-cdp click --by name "$SSO_BUTTON" --json` (accessible-name addressing — robust; add `--role button`/`link` if the name is ambiguous). If the app has **no** SSO button (e.g. `outlook`), skip the click.
-     - `chrome-cdp wait --url "<app host>" --timeout 15s --json` (or `wait --for 4s`).
-6. **Re-check.** `chrome-cdp eval "location.href" --json`:
-   - **Back on the app** (left the login/identity host): **done.**
+     - `chrome-cdp wait --url "<app host>" --timeout 15s --json` (or `wait --idle` — a condition, not a fixed sleep).
+6. **Re-check** (again, content over URL — re-`snap --grep "Log ?in|Sign ?in"` to be sure a login control is gone): `chrome-cdp eval "location.href" --json`:
+   - **Back on the app** (left the login/identity host **and** no login control remains): **done.**
    - **On Microsoft** (`login.microsoftonline.com`, or a passkey "Face, fingerprint, PIN or security key" screen): the SSO session expired.
      **Stop and ask the user to finish signing in manually in that Chrome tab** (their passkey/Touch ID), then continue once the app loads.
      Do not attempt the passkey programmatically.

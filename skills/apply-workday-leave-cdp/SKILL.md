@@ -10,8 +10,12 @@ Assisted, review-first automation of the Workday **Request Absence** flow, drive
 It requests an absence for the given date(s) and type, **shows the plan and only submits after the user confirms**, then checks the timesheet for those days and clears any project hours already entered there.
 Submitting an absence writes real data and pings the approver — never submit without explicit confirmation.
 
-> ⚠️ **DRAFT — needs live validation.** This is the cdp port of `apply-workday-leave`. The flow and safety rules are ported faithfully, but the Workday calendar / radio / in-page-modal interactions have **not** yet been validated end-to-end against a live tenant. On the first real run, go slowly, `snap`-and-verify at each step, and fall back to the original `apply-workday-leave` (claude-in-chrome) if a step misbehaves.
-> Follow the **`drive-chrome-cdp`** skill for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, `wait`, passkey rule). Soft deps: `login-microsoft-sso-cdp` (logged-in tab) and `fill-workday-timesheet-cdp` (Enter Time grid mechanics, Phase 6).
+> ⚠️ **DRAFT — needs live validation.**
+> This is the cdp port of `apply-workday-leave`.
+> The flow and safety rules are ported faithfully, but the Workday calendar / radio / in-page-modal interactions have **not** yet been validated end-to-end against a live tenant.
+> On the first real run, go slowly, `snap`-and-verify at each step, and fall back to the original `apply-workday-leave` (claude-in-chrome) if a step misbehaves.
+> Follow the **`drive-chrome-cdp`** skill for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, `wait`, passkey rule).
+> Soft deps: `login-microsoft-sso-cdp` (logged-in tab) and `fill-workday-timesheet-cdp` (Enter Time grid mechanics, Phase 6).
 
 ## Defaults (local config, never committed)
 
@@ -33,8 +37,11 @@ Follow **`login-microsoft-sso-cdp`** (app `workday`) to get a logged-in Workday 
 
 ## Phase 2 — Open Request Absence
 
-1. Focus the global **Search** and submit: `chrome-cdp type --by name "Search" "Request Absence\n" --json` (the trailing `\n` presses Enter). If the field's accessible name differs, `snap` to find it.
-2. On the results page, open the **Request Absence** *task* — **not** a home tile. `snap --json` first: pick the item whose role is `link` under Tasks/Reports, then `chrome-cdp click --by name "Request Absence" --role link --json`. (Tiles like "Requests"/"Request Absence" shift and are easy to mis-hit — the `--role link` + snap check guards against it; use `--nth` if two links share the name.)
+1. Focus the global **Search** and submit: `chrome-cdp type --by name "Search" "Request Absence\n" --json` (the trailing `\n` presses Enter).
+   If the field's accessible name differs, `snap` to find it.
+2. On the results page, open the **Request Absence** *task* — **not** a home tile.
+   `snap --json` first: pick the item whose role is `link` under Tasks/Reports, then `chrome-cdp click --by name "Request Absence" --role link --json`.
+   (Tiles like "Requests"/"Request Absence" shift and are easy to mis-hit — the `--role link` + snap check guards against it; use `--nth` if two links share the name.)
 3. Wait for the dialog: `chrome-cdp wait --visible "…" --json` (a Request Absence dialog control) or `snap` until the "For <user> (Myself)" dialog with a Calendar / Date Range toggle is present.
 
 ## Phase 3 — Select the date(s)
@@ -46,7 +53,7 @@ Follow **`login-microsoft-sso-cdp`** (app `workday`) to get a logged-in Workday 
 ## Phase 4 — Fill the absence form
 
 1. Open the **Type of Absence** prompt and select the type: `chrome-cdp click --by name "<type>" --json` (radio list; default from config).
-2. Check **Hours (Daily)** — Workday prefills the full day; adjust only for partial days (read via `snap`/`value`, set with `type` if needed).
+2. Check **Hours (Daily)** — Workday prefills the full day; adjust only for partial days (read via `snap`/`value`, and set with **`fill`** — it replaces the prefilled value, unlike `type` which would append to it).
 3. Leave **Comment** empty unless the user wants one.
 
 ## Phase 5 — Confirm, then submit
@@ -58,7 +65,8 @@ Show the plan as one table before touching Submit:
 | Fri Jul 3 | Casual/Sick Leave (IND) | 8 |
 
 Present it via `AskUserQuestion` with **Submit as-is** recommended, plus "add a comment first" and "don't submit".
-**Do not** `click "Submit Request"` until the user accepts. Then: `chrome-cdp click --by name "Submit Request" --role button --json`.
+**Do not** `click "Submit Request"` until the user accepts.
+Then: `chrome-cdp click --by name "Submit Request" --role button --json`.
 After submitting (no toast), verify via **Manage Absence**: search for it (`type --by name "Search" "Manage Absence\n"`), open it, and `snap`/`screenshot` — the calendar must show the absence block on the date (a clock icon = pending approval) and the Balances panel must reflect the plan.
 
 ## Phase 6 — Reconcile the timesheet (clear project hours on the leave day)
@@ -79,4 +87,5 @@ An absence does not remove project time already entered for that day — the day
 - Deleting a time block (Phase 6) is destructive — only on the confirmed leave day(s), never elsewhere.
 - Pre-existing **"Time Period Lockout"** alerts on other (closed) days are noise — surface, don't act; never enter/delete time on a locked day.
 - Avoid actions that trigger a native browser dialog (they block cdp); Workday's own in-page modals (Delete Time Block) are fine.
-- If a step fails repeatedly or the UI differs, stop and report — don't guess. Given this is a draft, prefer stopping over improvising.
+- If a step fails repeatedly or the UI differs, stop and report — don't guess.
+  Given this is a draft, prefer stopping over improvising.

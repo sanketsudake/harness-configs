@@ -9,36 +9,51 @@ disable-model-invocation: true
 Read-only summary of a week's meetings from the **Outlook** web calendar, driven by the **`chrome-cdp`** CLI (the user's real, logged-in Chrome).
 It reads the calendar's events and presents them grouped by day; it never creates, edits, or deletes anything.
 
-> ✅ **Validated live (2026-07-15).** cdp port of `list-week-meetings`. The full flow was exercised against real Outlook: reuse the authenticated tab → `snap` reads events by accessible name → `eval` scroll + re-`snap` + dedupe catches virtualized off-screen events. If a run misbehaves, fall back to `list-week-meetings` (claude-in-chrome).
-> Follow the **`drive-chrome-cdp`** skill for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, `wait`, passkey rule). Soft dep: **`login-microsoft-sso-cdp`** (app `outlook`) — Outlook has **no** SSO button and auto-authenticates via the shared Microsoft session, so login is just navigate + verify.
+> ✅ **Validated live (2026-07-16).** cdp port of `list-week-meetings`.
+> Streamlined flow: `open` the calendar → `wait --idle` for the SPA to render → **`snap --region Calendar --role button --grep "[AP]M to" --dedupe`** returns just the timed events, server-side filtered (≈5 nodes, not the whole ≈750-node tree — no external parsing).
+> If a run misbehaves, fall back to `list-week-meetings` (claude-in-chrome).
+> Follow the **`drive-chrome-cdp`** skill for the CLI (setup, `--json`/exit codes, `--by name`/`snap` filters/`wait`, passkey rule).
+> Soft dep: **`login-microsoft-sso-cdp`** (app `outlook`) — Outlook has **no** SSO button and auto-authenticates via the shared Microsoft session, so login is just navigate + verify.
 
 ## Phase 1 — Open the calendar
 
-Follow **`login-microsoft-sso-cdp`** (app `outlook`) to get a logged-in Outlook tab on the **week** calendar view (`OUTLOOK_HOME_URL`); `use` its tab id so later commands need no `--target`.
+Get a logged-in Outlook tab on the **week** view:
+- Reuse an existing one: `chrome-cdp list --url outlook --json` — if a calendar tab is there, `use` its id.
+- Otherwise `chrome-cdp open "$OUTLOOK_HOME_URL" --json` (from `login-microsoft-sso-cdp`'s config) — `open` creates the tab, navigates, and makes it current.
+  Outlook auto-authenticates via the shared Microsoft session; if it lands on a login/passkey page, follow **`login-microsoft-sso-cdp`** (app `outlook`).
+- Then **`chrome-cdp wait --idle --json`** — Outlook is an SPA, so the load event fires long before the calendar renders; `--idle` waits for the network to settle (don't guess a fixed sleep).
 
 ## Phase 2 — Pick the week
 
 - Default to the **current week**.
-- For another week: `chrome-cdp snap --json` to get the exact accessible names of the prev/next arrows and the date-range button (e.g. `"… – …, Jump to a specific date or date range."`), then `chrome-cdp click --by name "<name>" --role button --json`, and `chrome-cdp wait --for 2s --json` (or `--visible "<sel>"`) for the grid to reload.
-- Note the displayed range (via `snap`/`text` on the date heading, e.g. "28 June – 04 July, 2026") for the report header.
-- If a **"Filter applied"** button shows up in a `snap`, the calendar is filtered — say so in the report (results reflect the user's active filter). Only clear it if the user asks.
+- For another week: `chrome-cdp snap --role button --grep "specific date|Next|Previous" --json` to get the exact names of the prev/next arrows and the date-range button, then `chrome-cdp click --by name "<name>" --role button --json`, and `chrome-cdp wait --stable --json` (or `--idle`) for the grid to reload — a condition, not a fixed sleep.
+- Note the displayed range: `chrome-cdp snap --grep "\d.*–.*\d.*20\d\d$" --json` surfaces the heading (e.g. "12–18 July, 2026") — the first short match is the range.
+- If a **"Filter applied"** button shows up in a `snap`, the calendar is filtered — say so in the report (results reflect the user's active filter).
+  Only clear it if the user asks.
 
-## Phase 3 — Extract events (handle virtualization)
+## Phase 3 — Extract events (server-side filtered)
 
-The week grid **virtualizes**: only events near the visible time range are in the DOM, so a single read misses off-screen hours. `chrome-cdp` has no dedicated scroll verb, so drive the scroll via `eval` (a native `scroll` event fires even when `scrollTop` is set from JS, so virtualization still re-renders).
+Read just the timed events with one filtered snap — no whole-tree dump, no external parsing:
 
-1. Scroll the grid to the top (early morning): `chrome-cdp eval "<js setting the grid container's scrollTop to 0>" --json`.
-2. `chrome-cdp snap --json` — the accessibility snapshot, direct analog of `read_page` filtered to interactive: collect every event button under the calendar-view region, each with a rich accessible name, e.g. `"Team Standup, 9:00 AM to 9:30 AM, Monday, Jan 5, 2026, By Jane Doe, Recurring event, …"`.
-3. Scroll the grid down ~one viewport (`eval`, bump `scrollTop`) and `snap` again; repeat to the bottom of the day. If `eval` doesn't trigger a re-render, fall back to `chrome-cdp raw Input.dispatchMouseWheel '{"x":…,"y":…,"deltaY":600}' --json` (a real wheel event over the grid).
-4. Also capture all-day / top-banner items (work-plan, holidays) above the timed grid — same `snap`, or `chrome-cdp text "<banner selector>" --json`.
-5. **Dedupe by accessible name** (the same event renders at multiple scroll positions).
+```sh
+chrome-cdp snap --region "Calendar" --role button --grep "[AP]M to" --dedupe --json
+```
+
+- `--grep "[AP]M to"` keeps only nodes whose accessible name carries an event time range (e.g. `"AI weekly catchup, 9:30 AM to 10:30 AM, Monday, July 13, 2026, Busy, Recurring event"`); `--region "Calendar"` scopes to the calendar container; `--dedupe` collapses the virtualized duplicates (the same event rendered at several scroll positions).
+  Drop `--region` if it over-scopes.
+- **Cross-check completeness:** Outlook announces a count in an aria-live node — `chrome-cdp snap --grep "Loaded \d+ events" --json` (e.g. "Loaded 4 events") — compare it to your event count.
+- **Virtualized off-screen hours:** if the count says more events than you got, the grid virtualizes early-morning / late-evening rows.
+  Scroll and re-filter: `chrome-cdp scroll "<grid selector>" --dy 600 --wheel --json` (the `scroll` verb — `--wheel` for the grid's lazy render), then `wait --idle` and re-run the filtered snap; dedupe across reads.
+  Repeat to the bottom of the day.
+- Capture all-day / top-banner items too: `chrome-cdp snap --grep "all day|All day" --json`.
 
 ## Phase 4 — Parse and present
 
 Parse each accessible name (comma-separated): **title**, **start–end time**, **day + date**, optional **location / "Microsoft Teams Meeting" / join URL**, **"By <organizer>"**, and **status** (`Tentative` / `Busy` / `Recurring event` / `Exception`).
 
 - Treat "Microsoft Teams Meeting" or a join URL (Teams/Zoom) as **online**; otherwise in-person / no location.
-- By default list real **meetings** (timed events on the main Calendar). Mention all-day items separately, and exclude Birthdays / holidays calendars unless the user wants them.
+- By default list real **meetings** (timed events on the main Calendar).
+  Mention all-day items separately, and exclude Birthdays / holidays calendars unless the user wants them.
 
 Present grouped by day, sorted by start time, e.g.:
 

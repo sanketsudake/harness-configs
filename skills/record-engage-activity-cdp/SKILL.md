@@ -9,8 +9,11 @@ disable-model-invocation: true
 Assisted, review-first automation of the Engage **Add Activity** form, driven by the **`chrome-cdp`** CLI (the user's real, logged-in Chrome).
 It fills category, type, date, quantity, and notes, then **shows the entry and the points it will add, and submits only after the user confirms** — submitting writes real data and points.
 
-> ⚠️ **DRAFT — needs live validation.** cdp port of `record-engage-activity`; ported faithfully (category/type select, date-shift caveat, confirm-then-submit) but not yet validated against a live tenant — Category/Type may be native `<select>`s, which cdp's click-based selection drives less reliably than a custom listbox. Go slowly, `snap`-verify; fall back to `record-engage-activity` (claude-in-chrome) if a step misbehaves.
-> Follow **`drive-chrome-cdp`** for the CLI (`--json`/exit codes, `--by name`, `snap`, `wait`, passkey rule). Soft dep: **`login-microsoft-sso-cdp`** (app `engage`).
+> ✅ **Validated live (2026-07-16).** cdp port of `record-engage-activity` — a real `billed-week` (Direct Revenue › 40 Billable Hour Week, 5 points) was recorded end-to-end: `open` + `wait --idle` → content-based auth (Engage renders "Login with Improving" at the app URL) → Category/Type are native `<select>`s with no accessible name, driven by **`select --by label`** (its native sub-mode) → `fill --by label` for Date/Notes → confirm → submit → `grid` verify.
+> The date shifted a day (timezone, see Phase 4) but stayed in-week.
+> Go slowly, `snap`-verify; fall back to `record-engage-activity` (claude-in-chrome) if a step misbehaves.
+> Follow **`drive-chrome-cdp`** for the CLI (`--json`/exit codes, `--by name`, `snap`, `wait`, passkey rule).
+> Soft dep: **`login-microsoft-sso-cdp`** (app `engage`).
 
 ## Defaults & presets (local config, never committed)
 
@@ -21,7 +24,9 @@ Read from the **same config as `record-engage-activity`** — `~/.config/harness
 # $ENGAGE_ACTIVITY_URL, and ENGAGE_PRESET_<NAME> presets
 ```
 
-Schema (`ENGAGE_ACTIVITY_URL`, `ENGAGE_PRESET_*`) is identical to `record-engage-activity` — see that skill for the authoritative list; don't restate it here (it would drift). Presets are conveniences; the user can also pick any category/type from the live controls. A `billed-week` pairs with `fill-workday-timesheet-cdp`.
+Schema (`ENGAGE_ACTIVITY_URL`, `ENGAGE_PRESET_*`) is identical to `record-engage-activity` — see that skill for the authoritative list; don't restate it here (it would drift).
+Presets are conveniences; the user can also pick any category/type from the live controls.
+A `billed-week` pairs with `fill-workday-timesheet-cdp`.
 
 ### Education/Coaching (course attendance)
 
@@ -35,7 +40,9 @@ Follow **`login-microsoft-sso-cdp`** (app `engage`) to get a logged-in Engage ta
 
 ## Phase 2 — Open the Add Activity form
 
-`chrome-cdp nav "$ENGAGE_ACTIVITY_URL" --json`, `wait --for 3s`, then `snap --json` to locate: **Activity Category**, **Activity Type**, **Date**, **Quantity**, **Notes**, and the submit button (labelled "Add N points").
+`chrome-cdp open "$ENGAGE_ACTIVITY_URL" --json` (or `nav` in an existing tab), then `chrome-cdp wait --idle --json` (network-settle — not a fixed sleep).
+**Confirm you're actually in, by content not URL:** Engage serves a **"Login with Improving"** login view *at the activity URL* even when unauthenticated — so `chrome-cdp snap --grep "Log ?in" --json`; if a login control shows, `chrome-cdp click --by name "Login with Improving" --json`, `wait --idle`, and re-check (Phase 1 / `login-microsoft-sso-cdp` handles this).
+Only once the form is present, `snap --region "Add Activity" --json` to locate: **Activity Category**, **Activity Type**, **Date**, **Quantity**, **Notes**, and the submit button ("Add N points").
 
 ## Phase 3 — Gather the entry
 
@@ -43,22 +50,32 @@ Determine, asking where not implied: **Activity** — preset name (e.g. `billed-
 
 ## Phase 4 — Fill the form
 
-1. **Activity Category**: click `--by name "Activity Category"` to open it, then `--by name "<Category label>" --role option` (snap first for exact wording — the list is fixed).
-2. `wait --for 1s` (Type repopulates from the chosen category), then set **Activity Type** the same way: click the control, `snap` its options, click `--by name "<Type label>" --role option`.
-3. **Date** (only if not default), **Quantity**, **Notes**: `chrome-cdp type --by name "<field>" "<value>" --json` (no trailing `\n` — none of these submit).
-   - **Timezone shift**: the widget stores local midnight, converted to UTC server-side — in a behind-UTC timezone the stored date is the **previous day**. Set the field to **target date + 1** to land exactly (weekly activities need no compensation); verify the submitted row's Date column after.
-   - A date-picker click is sometimes ignored (only highlights); re-check and click again if unchanged.
+Category/Type are native `<select>`s with **no accessible name** (their labels are separate text) — address them by their **visible label** with `--by label`, which `select` honours (its native-`<select>` sub-mode sets the option):
+1. **Activity Category**: `chrome-cdp select --by label "Activity Category" "<Category label>" --json`.
+2. `chrome-cdp wait --stable --json` (Type repopulates from the chosen category — a settle, not a fixed sleep), then **Activity Type**: `chrome-cdp select --by label "Activity Type" "<Type label>" --option-match exact --json` (`--option-match exact` avoids a substring collision, e.g. `40 Billable Hour Week` vs `OVER 40 Billable Hour Week`).
+3. **Date** (only if not default), **Quantity**, **Notes**: set each with **`fill --by label`** (the Notes/Date labels are separate text nodes, not accessible names — `--by label` finds the control by its visible label, and `fill` replaces the default rather than appending): `chrome-cdp fill --by label "Notes" "<value>" --json`, `chrome-cdp fill --by label "Date" "MM/DD/YYYY" --json`.
+   - **Timezone shift**: the widget stores local midnight → UTC, so in a behind-UTC timezone the stored date is the **previous day** — this shifts even *weekly* activities by one (e.g. `07/10` stored as `7/9`).
+     Harmless as long as it stays inside the target week; **always verify the submitted row's Date after**, and if you need the exact day set the field to **target + 1**.
+   - A date-picker click is sometimes ignored (only highlights); re-check and re-`fill` if unchanged.
 
 ## Phase 5 — Review and submit
 
 - Re-`snap` (or `screenshot`): the submit button now reads **"Add N points"** — N is the points the chosen type grants.
 - Present the full entry — category, type, date, quantity, notes, **and N points** — via `AskUserQuestion`, submit recommended alongside "edit first" / "don't submit".
-- Only on explicit confirmation: `chrome-cdp click --by name "Add N points" --role button --json` (exact label read above).
-- `wait --for 2s`, then re-`snap`/`text` **Current Activities** to confirm the new row (matching category/type/date/notes) is at the top. Report a summary.
+- Only on explicit confirmation: `chrome-cdp click --by name "Add" --match contains --role button --json` (matches "Add N points" without needing to read N first).
+- `chrome-cdp wait --stable --json` (or `--idle`), then re-`snap`/`text` **Current Activities** to confirm the new row (matching category/type/date/notes) is at the top.
+  Report a summary.
+
+## Removing an entry (cleanup / testing)
+
+To delete a row from **Current Activities** (e.g. a dummy entry made to test the flow), address that row's **Delete** button by name scoped to the row, so the repeated "Delete" resolves to the right one: `chrome-cdp click --by name "Delete" --in-row "<notes or type of that row>" --role button --json`.
+The confirm is an **in-page** Angular **"Are you sure?"** modal (not a native dialog) — `snap` surfaces it (under `alerts`), then `chrome-cdp click --by name "Yes" --role button --json`.
+Add `--on-dialog accept` to the Delete click as a defensive guard in case a tenant variant raises a *native* confirm instead (it's a no-op for the in-page modal).
+Verify the row is gone with `grid`/`eval`, and take care not to delete a real activity in the same table.
 
 ## Safety
 
 - Never submit ("Add N points") without the user's explicit confirmation of the entry.
 - Pick category/type by visible accessible name, not position/index — order can change.
-- Avoid actions that trigger a native browser dialog (`alert`/`confirm`); they block cdp.
+- Avoid actions that trigger a native browser dialog (`alert`/`confirm`); they block cdp — or, on an action that might raise one, pass `--on-dialog accept|dismiss` so it's handled instead of wedging the connection.
 - If a step fails repeatedly, or a control is a native `<select>` click-based selection can't drive, stop and report — fall back to `record-engage-activity`.

@@ -10,8 +10,10 @@ Assisted, review-first automation of the Workday **Enter Time** flow, driven by 
 For the current week it proposes hours per weekday against a project, **shows the whole-week plan, and only saves after the user confirms**.
 Entering time writes real data — never save without explicit confirmation.
 
-> ⚠️ **DRAFT — needs live validation.** cdp port of `fill-workday-timesheet`; the read/propose/confirm/save/verify loop is ported faithfully but not yet validated end-to-end. Go slowly, `snap`-verify each step, and fall back to the original (claude-in-chrome) if a step misbehaves.
-> Follow **`drive-chrome-cdp`** for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, `wait`, passkey rule). Soft dep: `login-microsoft-sso-cdp` (logged-in tab, app `workday`).
+> ⚠️ **DRAFT — needs live validation.** cdp port of `fill-workday-timesheet`; the read/propose/confirm/save/verify loop is ported faithfully but not yet validated end-to-end.
+> Go slowly, `snap`-verify each step, and fall back to the original (claude-in-chrome) if a step misbehaves.
+> Follow **`drive-chrome-cdp`** for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, `wait`, passkey rule).
+> Soft dep: `login-microsoft-sso-cdp` (logged-in tab, app `workday`).
 
 ## Approach — enter the whole week at once
 
@@ -67,17 +69,32 @@ If anything changed, re-show the final one-line week (e.g. `Mon 8 · Tue 8 · We
 
 ## Phase 5 — Enter the time (Enter Time by Type — preferred)
 
-1. `chrome-cdp click --by name "Actions" --json`, then `chrome-cdp click --by name "Enter Time by Type" --json`.
-2. Set the project once: open **Time Type**, type a search term, Enter to select the recently-used leaf: `chrome-cdp type --by name "Time Type" "Time Entry\n" --json` (selects `<project> > Project > Time Entry`). Coordinate-drilling the cascade is unreliable — prefer search-and-Enter.
-3. For each day, `snap` for that day's hour-input **accessible name** (never CSS id — ids like `#56$…-input` change per session), then `chrome-cdp type --by name "<name>" "<hours>" --json`.
-4. Only after confirmation: `chrome-cdp click --by name "Save and Close" --role button --json`.
+1. Open the dialog with the **`select`** verb, which drives Workday's portal menu where a plain `click` on the option fails (the option closes the menu without opening the modal — see below):
+`chrome-cdp select "Actions" "Enter Time by Type" --role button --json`.
+The field is the **Actions** button; `select` coordinate-clicks it to open the menu, then clicks the **Enter Time by Type** option.
+The Actions menu anchors inconsistently (sometimes it renders mis-positioned and `select` returns `did not render / settle` — a safe no-op, never a wrong click); just re-run `select` and it opens on the next try.
+2. Set the project once with **`select`** on the **Time Type** cascade prompt (this is the E3 blocker that `click`/`type` could not open):
+`chrome-cdp select "Time Type" "$WORKDAY_TIMESHEET_TIMETYPE > $WORKDAY_TIMESHEET_PROJECT > Project > Time Entry" --role textbox --json` — the config values expand into a `>`-path like `<TimeType> > <Project> > Project > Time Entry`; the exact rendered labels vary by tenant, so confirm them from `snap`/the open prompt.
+The tree is **four levels deep**: `select` opens the prompt, drills each category by clicking its row, and selects the `… > Time Entry` leaf (`type=1`), committing a selected-item pill.
+Options match by substring, so the config's `Project Plan` matches the rendered `Project Plan Tasks`; `--role textbox` disambiguates the input from the same-named column header; `select` errors (never a false success) if the path is incomplete and the final segment is a category.
+The old `type --by name "Time Type" "Time Entry\n"` search-and-Enter is a fallback if a tenant renders a different tree.
+3. Enter each day's hours with **`fill --by cell`** — addresses the hour input by its **day column header**, and *replaces* the cell's `0` (not appends → `80`), so no per-day `snap` for input names and no session-specific ids:
+`chrome-cdp fill --by cell "Mon, 7/13" "8" --json` (repeat per weekday; the day headers come from the grid, e.g. `Mon, 7/13` … `Fri, 7/17`).
+In a multi-row grid disambiguate with `"<Time Type row>|Mon, 7/13"`.
+4. Only after confirmation, save and confirm in one call: `chrome-cdp click --by name "Save and Close" --role button --wait-text "saved" --json` (`--wait-text` blocks until Workday's "Your changes have been saved" appears — no separate verify).
 
-Fallback (day-by-day): click an empty day cell → set Time Type (search + Enter) → set **Hours** via `type --by name` → click **OK**. Repeat per day; slower, not preferred.
+> **Why `select`, not `click`, for the menu option and the cascade prompt:** Workday renders these as portal popups that open on a real pointer sequence, mount briefly collapsed (a zero-scale transform) then animate open, and delegate events to capture-phase handlers.
+> A single `click` lands mid-animation on a zero-size box (registering as an outside-click that closes the popup); `select` dispatches a real `Input.dispatchMouseEvent` at the element's live, occlusion-verified centre and re-reads geometry between the open and the option click — all in one held connection.
+> (Requires a `chrome-cdp` build with the `select` verb.)
+
+Fallback (day-by-day): click an empty day cell → set Time Type (`select`) → set **Hours** via `fill` → click **OK**.
+Repeat per day; slower, not preferred.
 
 ## Phase 6 — Verify
 
-- `chrome-cdp snap --json` (or `screenshot`) to re-read the grid: confirm each day shows the intended hours and the weekly total updated.
-- Report a summary: per-day hours and weekly total. Scope is one week per run.
+- `chrome-cdp grid --json` (or `value --all "[data-automation-id=numericInput]"`) to re-read the week's hours in one call: confirm each day shows the intended hours and the weekly total updated — no screenshot.
+- Report a summary: per-day hours and weekly total.
+  Scope is one week per run.
 - Do **not** click **"Review"**/**"Submit"** (submits the timesheet for approval) unless the user explicitly asks.
 
 ## Safety
@@ -85,4 +102,5 @@ Fallback (day-by-day): click an empty day cell → set Time Type (search + Enter
 - Never save without the user's explicit confirmation of the per-day plan.
 - Never enter time on a locked time period; surface it instead.
 - Avoid native browser dialogs (they block cdp); prefer in-page controls.
-- If a step fails repeatedly or the UI differs, stop and report — don't guess. As a draft, prefer stopping over improvising.
+- If a step fails repeatedly or the UI differs, stop and report — don't guess.
+  As a draft, prefer stopping over improvising.
