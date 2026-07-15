@@ -10,7 +10,7 @@ Assisted, review-first automation of the Workday **My Tasks** approval flow, dri
 It **lists** the pending items and approves **only** the items the user selects.
 Never approve anything the user did not explicitly choose.
 
-> ⚠️ **DRAFT — needs live validation.** cdp port of `approve-workday-tasks`; the list/open/approve/verify loop is ported faithfully but not yet validated end-to-end against a live tenant. Go slowly and `snap`-verify; fall back to the original `approve-workday-tasks` (claude-in-chrome) if a step misbehaves.
+> ⚠️ **DRAFT — approve path needs live validation.** cdp port of `approve-workday-tasks`. The **list phase is validated live** (2026-07-15: authenticate → open My Tasks via `click --by name "Go to My Tasks (N)"` → enumerate pending items all work). The **approve/submit path (Phase 4) has NOT been exercised** — it writes. On the first real run, `snap`-verify the Approve → Submit/OK step carefully and confirm the item disappears; fall back to the original `approve-workday-tasks` (claude-in-chrome) if it misbehaves.
 > Follow the **`drive-chrome-cdp`** skill for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, passkey rule). Soft dep: `login-microsoft-sso-cdp` (logged-in tab).
 
 ## Phase 1 — Authenticate

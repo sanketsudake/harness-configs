@@ -9,7 +9,7 @@ disable-model-invocation: true
 Read-only summary of a week's meetings from the **Outlook** web calendar, driven by the **`chrome-cdp`** CLI (the user's real, logged-in Chrome).
 It reads the calendar's events and presents them grouped by day; it never creates, edits, or deletes anything.
 
-> ⚠️ **DRAFT — needs live validation.** cdp port of `list-week-meetings`; the navigate/read/dedupe loop is ported faithfully but not yet validated end-to-end, especially the virtualized-grid scroll-and-read mechanics. Go slowly and `snap`-verify; fall back to `list-week-meetings` (claude-in-chrome) if a step misbehaves.
+> ✅ **Validated live (2026-07-15).** cdp port of `list-week-meetings`. The full flow was exercised against real Outlook: reuse the authenticated tab → `snap` reads events by accessible name → `eval` scroll + re-`snap` + dedupe catches virtualized off-screen events. If a run misbehaves, fall back to `list-week-meetings` (claude-in-chrome).
 > Follow the **`drive-chrome-cdp`** skill for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, `wait`, passkey rule). Soft dep: **`login-microsoft-sso-cdp`** (app `outlook`) — Outlook has **no** SSO button and auto-authenticates via the shared Microsoft session, so login is just navigate + verify.
 
 ## Phase 1 — Open the calendar
@@ -57,4 +57,4 @@ End with a count (e.g. "9 meetings across the week") and note the week range, an
 
 - Read-only — do not click into events to modify them, and do not change calendar settings or the active filter unless asked.
 - Avoid actions that trigger a native browser dialog (alert/confirm) — they block `chrome-cdp`.
-- If the grid won't load or `snap` reads come back empty after scrolling, stop and report rather than guessing. Given this is a draft, prefer stopping over improvising.
+- If the grid won't load or `snap` reads come back empty after scrolling, stop and report rather than guessing.
