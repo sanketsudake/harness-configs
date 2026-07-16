@@ -43,7 +43,7 @@ Because everything is symlinked, one edit here applies to every profile and both
 
 ## What's inside
 
-**Skills** — **[browse the catalog](skills/README.md)** (~70, grouped by category, generated from each skill's metadata).
+**Skills** — **[browse the catalog](skills/README.md)** (grouped by category, generated from each skill's metadata).
 Most are authored here; the rest are vendored from [pi-skills](https://github.com/badlogic/pi-skills), [cursor-team-kit](https://github.com/cursor/plugins), [anthropics/skills](https://github.com/anthropics/skills), and the [skills.sh](https://www.skills.sh/) ecosystem — each linked to its upstream source at a pinned commit.
 
 <!-- suites:begin -->
