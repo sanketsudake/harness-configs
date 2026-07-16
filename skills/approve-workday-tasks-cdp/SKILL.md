@@ -10,9 +10,9 @@ Assisted, review-first automation of the Workday **My Tasks** approval flow, dri
 It **lists** the pending items and approves **only** the items the user selects.
 Never approve anything the user did not explicitly choose.
 
-> ✅ **Validated live end-to-end (2026-07-15)** — two real Time Entry approvals went through: authenticate → open My Tasks via `click --by name "Go to My Tasks (N)"` → enumerate → (Review →) Approve → "Success!
-> Event approved". cdp port of `approve-workday-tasks`.
-> Fall back to the original (claude-in-chrome) if a run misbehaves.
+> ✅ **Validated live end-to-end** — 3 real Time Entry approvals on 2026-07-16 (and 2 on 2026-07-15): authenticate → open My Tasks → **identify the open item** → Approve with `--wait-text "Success"` → **return to the inbox** and repeat.
+> Each approval lands on a dead-end "Success! Event approved" page — it does **not** auto-advance to the next task, so you re-open each item from the inbox; the My Tasks count decrements per approval as an independent check.
+> cdp port of `approve-workday-tasks`; fall back to the original (claude-in-chrome) if a run misbehaves.
 > Follow the **`drive-chrome-cdp`** skill for the CLI (setup, `--json`/exit codes, `--by name` addressing, `snap`, passkey rule).
 > Soft dep: `login-microsoft-sso-cdp` (logged-in tab).
 
@@ -38,15 +38,22 @@ Follow **`login-microsoft-sso-cdp`** (app `workday`) to get a logged-in Workday 
 
 For each item the user selected, and only those:
 
-1. Open it: `chrome-cdp click --by name "<item title>" --json` (`snap` for the exact name; `--nth` if titles repeat).
-   This may land on a **View Event** page whose only action is **Review** — its *accessible name* is verbose, e.g. `"Review Approval: Awaiting Action by <You>"` (the visible text is just "Review"), so **take the exact name from `snap`** and `chrome-cdp click --by name "Review Approval: Awaiting Action by <You>" --role button --json` to enter the approval task.
-   (After approving one item, the queue often auto-advances to the next already-open with its Approve button — no re-open needed.)
-2. Approve and confirm in one call: `chrome-cdp click --by name "Approve" --role button --wait-text "Success" --json` — `--wait-text` blocks until the **"Success!
+1. **Open it** from the My Tasks list: `chrome-cdp click --by name "<item title>" --json` (`snap` for the exact name; `--nth` if titles repeat).
+   Opening My Tasks auto-selects the first item, and the auto-opened item is **not always the top of the list you enumerated** — so never assume which item is on screen.
+   Opening may land on a **View Event** page whose only action is **Review** — its *accessible name* is verbose, e.g. `"Review Approval: Awaiting Action by <You>"` (the visible text is just "Review"), so take the name from `snap` and `chrome-cdp click --by name "Review" --match contains --role button --json` to enter the approval task.
+2. **Identify the open item before approving.**
+   Positively confirm the task on screen is the one you mean to approve — do **not** trust the My Tasks preview label (previews can disagree with the detail page; e.g. a preview reading "40 hours" for an item whose detail totals 44).
+   Read the open approval's worker + period + hours off the detail pane: `chrome-cdp grid --json` (the entries table) or a targeted `chrome-cdp snap --grep "<worker>|Total Hours|from 07" --json`.
+   If it does **not** match the selected item (different worker or period), do **not** approve — re-open the correct item (`--nth` to disambiguate identical titles) or report the mismatch and stop.
+3. **Approve and confirm in one call:** `chrome-cdp click --by name "Approve" --role button --wait-text "Success" --json` — `--wait-text` blocks until the **"Success!
    Event approved"** toast, so the click and its verification are one step.
    For a **Time Entry Approval** this finalizes it — there is **no** separate Submit.
    Other task types *may* show a Submit/OK; `snap` and click it by its exact name only if present.
-3. If `--wait-text` returned ok the approval landed; else confirm via the event's **Overall Status → "Successfully Completed"** (or `snap.alerts`) — NOT the top-bar My Tasks badge, which lags.
-   Then move to the next item.
+   If `--wait-text` returned ok the approval landed; else confirm via the event's **Overall Status → "Successfully Completed"** (or `snap.alerts`) — NOT the top-bar My Tasks badge, which lags.
+4. **Return to the inbox for the next item.**
+   The approval lands on a **"Success! Event approved" page that is a dead end** — no navigation, and it does **not** auto-advance to the next task.
+   Go back: `chrome-cdp nav "<Workday home>" --json` (the `WORKDAY_HOME_URL` from `login-microsoft-sso-cdp`'s config) → `chrome-cdp wait --stable --json` → `chrome-cdp click --by name "Go to My Tasks (N)" --role button --json`.
+   The count **N** decrements by one per approval — use it as an independent confirmation the item cleared — then repeat from step 1 until every selected item is done.
 
 > Naming note: exact accessible-name matching (`--by name`) means the string must match what `snap` reports, not the visible label (they differ, as with "Review").
 > Always `snap` first; use `--nth` to disambiguate duplicates.

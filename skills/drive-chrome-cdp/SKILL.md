@@ -132,7 +132,9 @@ Beyond per-selector auto-wait:
 - `wait --visible "<sel>"` / `wait --gone "<sel>"` — until an element appears / disappears.
 - **`wait --text "<substr>"`** — until the page (accessibility tree, incl. alerts) contains the text, e.g. `wait --text "Success"` right after a write.
 - **`wait --stable`** — until the accessibility tree stops changing (the page settled); use it instead of guessing a fixed sleep after an action.
-- **`wait --idle`** — until network activity settles (no in-flight requests); for SPA loads (Outlook, Workday) where the load event fires long before the content is fetched — prefer this over a fixed sleep after `nav`/`open`.
+- **`wait --idle`** — until network activity settles; for SPA loads (Outlook, Workday) where the load event fires long before the content is fetched — prefer this over a fixed sleep after `nav`/`open`.
+  It also settles when the page holds a **websocket / long-poll / EventSource** stream open (it treats a still-open request as idle once the connection goes quiet for ~2s), so it won't hang on Workday-class apps whose streams never "finish".
+  When you need "the content/toast is actually there" rather than "the network went quiet", prefer **`--stable`** (a11y tree stopped changing) or **`--text "<substr>"`** (a specific string appeared).
 - `wait --for 3s` — fixed fallback; **prefer a condition** (`--text`/`--stable`/`--idle`) — guessing seconds is slower and flakier.
 
 The command's `--timeout` bounds the wait; a wait that never resolves returns a clean `target/timeout` (exit 4).
