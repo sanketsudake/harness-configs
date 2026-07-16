@@ -1,16 +1,19 @@
 ---
 name: record-engage-activity
-description: Use when the user wants to record an activity in Engage (the org's activity/points platform) — e.g. a billed work week, a phone interview, or an attended course/class (e.g. ImprovingU) — invoked as /record-engage-activity. Fills the Add Activity form (category, type, date, quantity, notes) and submits only after the user confirms; can derive a class's date and hours from the user's Outlook calendar. Runs in the user's real Chrome via claude-in-chrome (logs in through the login-microsoft-sso skill).
+description: Use when the user wants to record an activity in Engage (the org's activity/points platform) — e.g. a billed work week, a phone interview, or an attended course/class (e.g. ImprovingU) — invoked as /record-engage-activity. Fills the Add Activity form (category, type, date, quantity, notes) and submits only after user confirmation; can derive a class's date/hours from Outlook. Drives the user's real Chrome via the chrome-cdp CLI (logs in through login-microsoft-sso).
 disable-model-invocation: true
 ---
 
 # Record Engage Activity
 
-Assisted, review-first automation of the Engage **Add Activity** form, driven by the `claude-in-chrome` extension (the user's real, logged-in Chrome).
+Assisted, review-first automation of the Engage **Add Activity** form, driven by the **`chrome-cdp`** CLI (the user's real, logged-in Chrome).
 It fills category, type, date, quantity, and notes, then **shows the entry and the points it will add, and submits only after the user confirms** — submitting writes real data and points.
 
-> Local skill, maintained in this repo (`.source.json` has `"repo": null`).
-> Soft dependency: the `login-microsoft-sso` skill (logged-in tab) and the `claude-in-chrome` extension.
+> ✅ **Validated live (2026-07-16).** A real `billed-week` (Direct Revenue › 40 Billable Hour Week, 5 points) was recorded end-to-end: `open` + `wait --idle` → content-based auth (Engage renders "Login with Improving" at the app URL) → Category/Type are native `<select>`s with no accessible name, driven by **`select --by label`** (its native sub-mode) → `fill --by label` for Date/Notes → confirm → submit → `grid` verify.
+> The date shifted a day (timezone, see Phase 4) but stayed in-week.
+> Go slowly and `snap`-verify each step.
+> Follow **`drive-chrome-cdp`** for the CLI (`--json`/exit codes, `--by name`, `snap`, `wait`, passkey rule).
+> Soft dep: **`login-microsoft-sso`** (app `engage`).
 
 ## Defaults & presets (local config, never committed)
 
@@ -27,59 +30,57 @@ Read from `~/.config/harness-configs/record-engage-activity/config` (user/tenant
   - `ENGAGE_PRESET_PHONE_INTERVIEW="Recruiting > Interview - Phone"`
   - `ENGAGE_PRESET_COURSE_ATTENDED="Education/Coaching > ImprovingU Attendance"`
 
-Presets are conveniences; the user can also pick any category/type from the live dropdowns.
-A `billed-week` activity corresponds to a fully-filled Workday timesheet week (40+ billable hours) — it pairs naturally with the `fill-workday-timesheet` skill: a week filled there is reportable here.
+Presets are conveniences; the user can also pick any category/type from the live controls.
+A `billed-week` pairs with `fill-workday-timesheet`.
 
 ### Education/Coaching (course attendance)
 
-- The category's types include `ImprovingU Attendance`, plus course-prep/facilitation/instructor variants — `read_page` the type select for the live list (the form shows each selected type's own description/guidance).
-- **Quantity** is in *class hours*: record each **full** hour spent in a session (a 1.5 h class → 1).
-- **Notes** must name the class (e.g. `<course name> - <session name with instructor>`).
-- **Date** is the day attended.
-  If the user doesn't state it, find the class event in their Outlook calendar (via `login-microsoft-sso` with app `outlook`; the week view's event button exposes `<title>, <start> to <end>, <weekday, date>` — `find` it) and take the date and duration from the event.
+- Types include `ImprovingU Attendance` plus prep/facilitation/instructor variants — `snap` the type control for the live list (each shows its own guidance once selected).
+- **Quantity** is *class hours* (1.5 h class → 1); **Notes** names the class (`<course> - <session, instructor>`).
+- **Date** is the day attended; if unstated, find the class via Outlook (`login-microsoft-sso` app `outlook`; `snap` the week view for `<title>, <start> to <end>, <date>`) for date/duration.
 
 ## Phase 1 — Authenticate
 
-Follow the `login-microsoft-sso` skill first (with app `engage`) to get a logged-in Engage tab; reuse its `tabId`.
+Follow **`login-microsoft-sso`** (app `engage`) to get a logged-in Engage tab; `chrome-cdp use <id>` so later commands need no `--target`.
 
 ## Phase 2 — Open the Add Activity form
 
-- `navigate` the tab to `ENGAGE_ACTIVITY_URL`, `wait` ~3s, then `read_page` (filter `interactive`) to locate the form: **Activity Category** select, **Activity Type** select, **Date**, **Quantity**, **Notes**, and the submit button (labelled "Add N points").
+`chrome-cdp open "$ENGAGE_ACTIVITY_URL" --json` (or `nav` in an existing tab), then `chrome-cdp wait --idle --json` (network-settle — not a fixed sleep).
+**Confirm you're actually in, by content not URL:** Engage serves a **"Login with Improving"** login view *at the activity URL* even when unauthenticated — so `chrome-cdp snap --grep "Log ?in" --json`; if a login control shows, `chrome-cdp click --by name "Login with Improving" --json`, `wait --idle`, and re-check (Phase 1 / `login-microsoft-sso` handles this).
+Only once the form is present, `snap --region "Add Activity" --json` to locate: **Activity Category**, **Activity Type**, **Date**, **Quantity**, **Notes**, and the submit button ("Add N points").
 
 ## Phase 3 — Gather the entry
 
-Determine, asking the user where not implied:
-
-- **Activity** — a preset name (e.g. `billed-week`, `phone-interview`) or an explicit category + type.
-  Resolve a preset to its `<Category>` / `<Type>`.
-- **Notes** — required free text (e.g. `"22-26 work week"`, or the candidate/round for an interview).
-- **Date** — default today; accept an override.
-- **Quantity** — default 1.
+Determine, asking where not implied: **Activity** — preset name (e.g. `billed-week`, `phone-interview`) or explicit category + type, resolving a preset to its `<Category>` / `<Type>`; **Notes** — required free text (e.g. `"22-26 work week"`, or the candidate/round); **Date** — default today; **Quantity** — default 1.
 
 ## Phase 4 — Fill the form
 
-1. Set **Activity Category**: `form_input` the category select with the exact option label (e.g. `Direct Revenue`).
-   The category list is fixed; if the user's term doesn't match, `read_page` the select's options and pick the closest, confirming with the user.
-2. `wait` briefly — the **Activity Type** select populates from the chosen category — then `form_input` it with the type label (e.g. `40 Billable Hour Week`).
-   Re-`read_page` the type options first if unsure of exact wording.
-3. Set **Date** (`form_input`, format `MM/DD/YYYY`) only if different from the default; **Quantity** (`form_input`, default 1); **Notes** (`form_input`).
-   - Caveat — the one-day shift applies to **both** input methods (`form_input` *and* the date-picker UI): the widget stores local midnight, the server converts to UTC, so in a behind-UTC timezone the stored date is the **previous day**.
-     To land on an exact day, **set the field to target date + 1** (e.g. pick `07/02` to record `07/01`) and verify the submitted row's Date column afterwards.
-     For a weekly activity the exact in-week day is immaterial, so no compensation is needed.
-   - The shift can also trip validation: the server checks the (UTC) date against the selected **Reporting Period**, so an uncompensated date at a quarter boundary fails with *"Activity Date is not within the Reporting Period"* — fix by compensating +1 as above, not by switching the period.
-   - The date-picker sometimes ignores the first click on a day (it only highlights); re-check the field value and click the day again if unchanged.
+Category/Type are native `<select>`s with **no accessible name** (their labels are separate text) — address them by their **visible label** with `--by label`, which `select` honours (its native-`<select>` sub-mode sets the option):
+1. **Activity Category**: `chrome-cdp select --by label "Activity Category" "<Category label>" --json`.
+2. `chrome-cdp wait --stable --json` (Type repopulates from the chosen category — a settle, not a fixed sleep), then **Activity Type**: `chrome-cdp select --by label "Activity Type" "<Type label>" --option-match exact --json` (`--option-match exact` avoids a substring collision, e.g. `40 Billable Hour Week` vs `OVER 40 Billable Hour Week`).
+3. **Date** (only if not default), **Quantity**, **Notes**: set each with **`fill --by label`** (the Notes/Date labels are separate text nodes, not accessible names — `--by label` finds the control by its visible label, and `fill` replaces the default rather than appending): `chrome-cdp fill --by label "Notes" "<value>" --json`, `chrome-cdp fill --by label "Date" "MM/DD/YYYY" --json`.
+   - **Timezone shift**: the widget stores local midnight → UTC, so in a behind-UTC timezone the stored date is the **previous day** — this shifts even *weekly* activities by one (e.g. `07/10` stored as `7/9`).
+     Harmless as long as it stays inside the target week; **always verify the submitted row's Date after**, and if you need the exact day set the field to **target + 1**.
+   - A date-picker click is sometimes ignored (only highlights); re-check and re-`fill` if unchanged.
 
 ## Phase 5 — Review and submit
 
-- Re-`read_page`/`screenshot`: the submit button now reads **"Add N points"** — N is the points the chosen type grants.
-- Show the user the full entry: category, type, date, quantity, notes, **and N points**.
-- **Wait for explicit confirmation**, then click the submit button.
-- `wait`, then verify the new row appears at the top of **Current Activities** (matching category/type/date/notes).
+- Re-`snap` (or `screenshot`): the submit button now reads **"Add N points"** — N is the points the chosen type grants.
+- Present the full entry — category, type, date, quantity, notes, **and N points** — via `AskUserQuestion`, submit recommended alongside "edit first" / "don't submit".
+- Only on explicit confirmation: `chrome-cdp click --by name "Add" --match contains --role button --json` (matches "Add N points" without needing to read N first).
+- `chrome-cdp wait --stable --json` (or `--idle`), then re-`snap`/`text` **Current Activities** to confirm the new row (matching category/type/date/notes) is at the top.
   Report a summary.
+
+## Removing an entry (cleanup / testing)
+
+To delete a row from **Current Activities** (e.g. a dummy entry made to test the flow), address that row's **Delete** button by name scoped to the row, so the repeated "Delete" resolves to the right one: `chrome-cdp click --by name "Delete" --in-row "<notes or type of that row>" --role button --json`.
+The confirm is an **in-page** Angular **"Are you sure?"** modal (not a native dialog) — `snap` surfaces it (under `alerts`), then `chrome-cdp click --by name "Yes" --role button --json`.
+Add `--on-dialog accept` to the Delete click as a defensive guard in case a tenant variant raises a *native* confirm instead (it's a no-op for the in-page modal).
+Verify the row is gone with `grid`/`eval`, and take care not to delete a real activity in the same table.
 
 ## Safety
 
 - Never submit ("Add N points") without the user's explicit confirmation of the entry.
-- Pick category/type by their visible label, not by position/index (the recording's `5: Object` indices are opaque and order can change).
-- Avoid actions that trigger a native browser dialog (alert/confirm) — they block the extension.
-- If a step fails repeatedly or the form differs from the above, stop and report rather than guessing.
+- Pick category/type by visible accessible name, not position/index — order can change.
+- Avoid actions that trigger a native browser dialog (`alert`/`confirm`); they block cdp — or, on an action that might raise one, pass `--on-dialog accept|dismiss` so it's handled instead of wedging the connection.
+- If a step fails repeatedly, or a control is a native `<select>` that click-based selection can't drive, stop and report — don't guess.

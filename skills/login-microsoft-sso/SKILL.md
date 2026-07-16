@@ -1,64 +1,68 @@
 ---
 name: login-microsoft-sso
-description: Use to ensure an authenticated browser tab for an app behind your organization's Microsoft (Entra) SSO — e.g. Workday, Engage, Outlook — via the claude-in-chrome extension, which reuses the user's real, already-logged-in Chrome session. A building block for the other automation skills — invoke it first (with the target app) so they operate in a logged-in tab. Invoked as /login-microsoft-sso.
+description: Use to ensure an authenticated browser tab for an app behind your organization's Microsoft (Entra) SSO — e.g. Workday, Engage, Outlook — driven by the `chrome-cdp` CLI. It drives the user's real, already-logged-in Chrome, so it types no credentials; it navigates to the app and, if redirected to a sign-in page, clicks that app's SSO entry, which bounces back in via the live session. A building block for the automation skills — invoke it first (with the target app) so they operate on a logged-in tab. Invoked as /login-microsoft-sso.
 disable-model-invocation: true
 ---
 
 # Login to an SSO app (Microsoft-federated)
 
-Ensure there is a browser tab logged in to an app that authenticates through your organization's **Microsoft (Entra) SSO**, using the `claude-in-chrome` extension.
-The extension drives the user's real Chrome, which already holds their Microsoft session — so this skill types **no** credentials.
-It navigates to the app's home and, if redirected to a sign-in page, clicks that app's SSO entry, which bounces straight back in via the live session.
+Ensure there is a Chrome tab logged in to an app that authenticates through your organization's **Microsoft (Entra) SSO**, driven by the **`chrome-cdp`** CLI.
+It drives the user's real Chrome, which already holds their Microsoft session — so this skill types **no** credentials.
 
-Supported apps (the caller passes one; add more in the local config):
+> Follow the **`drive-chrome-cdp`** skill for the CLI's setup, output contract, and passkey rule.
+> Local skill, maintained in this repo (`.source.json` has `"repo": null`).
+
+## Supported apps & config
+
+The caller passes one app; the current set (add more in the local config):
 
 - `workday` — Workday (My Tasks, timesheet).
 - `engage` — Engage (activity/points platform).
-- `outlook` — Outlook web (mail/calendar, Microsoft 365).
-  Auto-authenticates via the shared Microsoft session — there is **no** app SSO button; just navigate and verify.
+- `outlook` — Outlook web (mail/calendar, Microsoft 365) — has **no** SSO button (`<APP>_SSO_BUTTON` unset) and auto-authenticates via the shared Microsoft session, so just navigate + verify.
 
-> Local skill, maintained in this repo (`.source.json` has `"repo": null`).
-> Soft dependency: the `claude-in-chrome` skill/extension.
-> The app domains must be permitted in the extension.
-
-## Background (why this shape)
-
-`agent-browser` and other fresh-profile browsers can't be used: the org's tenant forces a passkey login with no password fallback, and a separate browser can't inherit Chrome's encrypted session or platform passkey.
-Driving the user's own Chrome via `claude-in-chrome` sidesteps login entirely; all these apps share the one Microsoft session.
-
-## Prerequisites
-
-App URLs and SSO button labels are org/tenant-specific, so they live in a local config that is never committed: `~/.config/harness-configs/login-microsoft-sso/config`.
-Read the entries for the requested app at runtime; do not hardcode them here.
-
-```bash
-. ~/.config/harness-configs/login-microsoft-sso/config
-# workday: $WORKDAY_HOME_URL / $WORKDAY_SSO_BUTTON
-# engage:  $ENGAGE_HOME_URL  / $ENGAGE_SSO_BUTTON
-# outlook: $OUTLOOK_HOME_URL  (no SSO button — auto-auth via the Microsoft session)
-```
+App URLs and SSO button labels are org/tenant-specific, so they live in a never-committed local config read at runtime: `~/.config/harness-configs/login-microsoft-sso/config` (`<APP>_HOME_URL`, `<APP>_SSO_BUTTON`).
+Do not hardcode URLs or button labels.
 
 ## Steps
 
-1. Load the `claude-in-chrome` skill, then call `tabs_context_mcp` to get (or create) a tab.
-   Use that `tabId` for everything below.
-2. Pick the home URL and SSO button label for the requested app from the config (`<APP>_HOME_URL`, `<APP>_SSO_BUTTON`).
-3. `navigate` the tab to the app's home URL, then `wait` ~3s for it to settle.
-4. Check the tab's URL:
-   - On the app (not a login/identity page): **done — return the tabId.**
-   - Redirected to the app's sign-in page (a vendor identity host such as a Workday `*-identity.*` domain, or an app `/account/login` page): `find` the link/button matching the app's SSO button label and click it, then `wait` ~4s.
-     If the app has no SSO button (e.g. `outlook`, which redirects straight to Microsoft), skip the click — the live session bounces in automatically; just `wait`.
-5. Re-check the URL:
-   - Back on the app (left the login/identity host): **done.**
-   - Landed on Microsoft (`login.microsoftonline.com` / a passkey "Face, fingerprint, PIN or security key" screen): the SSO session expired.
+All commands take `--json`; parse the envelope and branch on the exit code (see `drive-chrome-cdp`).
+
+1. **Connection.**
+   `chrome-cdp doctor --json`.
+   If `ok:false` (connection_failed), tell the user to enable `chrome://inspect/#remote-debugging`, then re-run.
+   Do not proceed until ready.
+2. **Pick a tab.**
+   `chrome-cdp list --url "<app host>" --json` (the `--url` filter finds an existing tab on the app without scanning the whole list).
+   Reuse it in place and `chrome-cdp use <id>` (sticky, so later commands need no `--target`).
+   Record that `id` — it is this skill's output.
+   **No such tab?**
+   Skip straight to a fresh one in step 4 with `open`.
+3. **Config.**
+   Source the config; take `<APP>_HOME_URL` and `<APP>_SSO_BUTTON` for the requested app.
+4. **Navigate + settle.**
+   If reusing a tab: `chrome-cdp nav "$HOME_URL" --json`.
+   If starting fresh: `chrome-cdp open "$HOME_URL" --json` (creates the tab, navigates, makes it current — record the returned id).
+   Then let the SPA settle: `chrome-cdp wait --url "<expected app host or path>" --timeout 15s --json` if you know the settled URL, else `chrome-cdp wait --idle --json` (network-settle — prefer over a fixed `wait --for`).
+5. **Check where you landed — by PAGE CONTENT, not just the URL.**
+   `chrome-cdp eval "location.href" --json` tells you the host, but an SPA can render a **login view at the app's own URL** (e.g. Engage serves a "Login with …" button under the activity URL), so a URL that looks like the app is *not* proof you're signed in.
+   Confirm with a content check: `chrome-cdp snap --grep "Log ?in|Sign ?in" --json` — if a login/SSO control is present, you're on a sign-in page regardless of the URL; if it's absent (or a known app control like a nav/menu is present), you're in.
+   - **On the app** (no login control, an app control present): **done — return the tab id.**
+   - **On the app's sign-in page** (a login/SSO control is present, or a vendor identity host such as a Workday `*-identity.*` domain / an app `/account/login` page): click that app's SSO entry.
+     - `chrome-cdp snap --json` to confirm the button's exact accessible name, then
+     - `chrome-cdp click --by name "$SSO_BUTTON" --json` (accessible-name addressing — robust; add `--role button`/`link` if the name is ambiguous). If the app has **no** SSO button (e.g. `outlook`), skip the click.
+     - `chrome-cdp wait --url "<app host>" --timeout 15s --json` (or `wait --idle` — a condition, not a fixed sleep).
+6. **Re-check** (again, content over URL — re-`snap --grep "Log ?in|Sign ?in"` to be sure a login control is gone): `chrome-cdp eval "location.href" --json`:
+   - **Back on the app** (left the login/identity host **and** no login control remains): **done.**
+   - **On Microsoft** (`login.microsoftonline.com`, or a passkey "Face, fingerprint, PIN or security key" screen): the SSO session expired.
      **Stop and ask the user to finish signing in manually in that Chrome tab** (their passkey/Touch ID), then continue once the app loads.
      Do not attempt the passkey programmatically.
 
 ## Output
 
-A `claude-in-chrome` tab (its `tabId`) logged in to the requested app, for the calling skill to reuse.
+The Chrome tab id (from `list`/`use`) logged in to the requested app, for the calling skill to reuse via `--target <id>` (or the sticky `use`).
 
 ## Safety
 
 - Never type or handle credentials; the user's live session and passkey do the auth.
 - If login can't be confirmed, stop and report — do not click blindly.
+- `click --by name` targets the control by its accessible name; if it stalls, re-`snap` and retry (or `--wait ready`) rather than falling back to coordinates.
